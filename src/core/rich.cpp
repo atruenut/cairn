@@ -870,4 +870,14 @@ int replaceInText(std::string& text, Runs& runs, const std::string& find, const 
   return (int)hits.size();
 }
 
+size_t utf16UnitsBefore(const std::string& s, size_t byteEnd) {
+  size_t n = 0;
+  for (size_t i = 0; i < byteEnd && i < s.size(); ++i) {
+    unsigned char c = (unsigned char)s[i];
+    if ((c & 0xC0) == 0x80) continue;  // continuation byte: part of the previous character
+    n += c >= 0xF0 ? 2 : 1;
+  }
+  return n;
+}
+
 }  // namespace cairn

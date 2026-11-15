@@ -66,6 +66,11 @@ std::string htmlFragmentFromClipboard(const std::string& clip, std::string* sour
 // resolved against sourceUrl's origin when given.
 RichText htmlToRich(const std::string& html, const std::string& sourceUrl = "");
 
+// ---- text offsets --------------------------------------------------------------
+// UTF-16 units in the first `byteEnd` bytes of a UTF-8 string, as a Windows text control counts
+// them (a 4-byte character is two units). Tolerates malformed input and out-of-range offsets.
+size_t utf16UnitsBefore(const std::string& s, size_t byteEnd);
+
 // ---- find & replace ------------------------------------------------------------
 // Replaces every non-overlapping match of `find` (left to right) in `text`, keeping `runs`
 // attached to the right characters. Matching ignores ASCII case unless matchCase. Returns the

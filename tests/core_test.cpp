@@ -589,6 +589,19 @@ static void testLinkTarget() {
 }
 
 
+static void testUtf16Units() {
+  using namespace cairn;
+  std::string s = "a\xC3\xA9\xF0\x9F\x98\x80z\nq";  // a, e-acute (2 bytes), emoji (4 bytes), z, newline, q
+  CHECK(utf16UnitsBefore(s, 0) == 0);
+  CHECK(utf16UnitsBefore(s, 1) == 1);      // after 'a'
+  CHECK(utf16UnitsBefore(s, 3) == 2);      // after e-acute
+  CHECK(utf16UnitsBefore(s, 7) == 4);      // after the emoji: two UTF-16 units
+  CHECK(utf16UnitsBefore(s, s.size()) == 7);
+  CHECK(utf16UnitsBefore(s, 9999) == 7);   // out of range clamps
+  CHECK(utf16UnitsBefore("", 5) == 0);
+  CHECK(utf16UnitsBefore("\x80\x80", 2) == 0);  // stray continuation bytes don't count
+}
+
 static void testSizeSteps() {
   using namespace cairn;
   CHECK(stepFontPt(14, 1) == 16);
@@ -861,6 +874,7 @@ int main() {
   testHtmlPaste();
   testHtmlCopy();
   testSizeSteps();
+  testUtf16Units();
   testExportSite();
   testReplace();
   testPageOrder();

@@ -1,5 +1,7 @@
 #include "canvas.h"
 
+#include <richedit.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -22,6 +24,7 @@ const wchar_t* kClass = L"CairnCanvas";
 constexpr UINT WM_EDIT_COMMIT = WM_APP + 1;  // wParam: 1 = give focus back to the canvas
 constexpr UINT WM_EDIT_CANCEL = WM_APP + 2;
 constexpr UINT WM_EDIT_FORMAT = WM_APP + 3;  // wParam: Canvas::FormatCmd
+constexpr UINT WM_EDIT_UNDO = WM_APP + 6;    // wParam: 1 = redo
 constexpr UINT WM_EDIT_SIZE = WM_APP + 5;    // wParam: +1 / -1
 constexpr UINT WM_EDIT_PASTE = WM_APP + 4;   // rich (HTML) paste into the open editor
 constexpr int kGrid = 8;
@@ -29,6 +32,32 @@ constexpr int kMinSize = 8;
 constexpr COLORREF kAccent = RGB(0x2F, 0x6F, 0xDE);
 
 WNDPROC g_oldEditProc = nullptr;
+bool g_editRich = false;  // the live editor is a RichEdit (text objects), not a plain EDIT
+
+int cpOfByte(const std::string& s, size_t b) { return (int)utf16UnitsBefore(s, b); }
+
+// Reads the editor's text with "\r\n" line ends, whichever control it is.
+std::wstring readEditText(HWND e, bool rich) {
+  if (!e) return L"";
+  if (rich) {
+    GETTEXTLENGTHEX gl{GTL_USECRLF | GTL_NUMCHARS, 1200};
+    int n = (int)SendMessageW(e, EM_GETTEXTLENGTHEX, (WPARAM)&gl, 0);
+    if (n < 0) n = 0;
+    std::wstring w((size_t)n + 2, L'\0');
+    GETTEXTEX gt{};
+    gt.cb = (DWORD)((n + 1) * sizeof(wchar_t));
+    gt.flags = GT_USECRLF;
+    gt.codepage = 1200;
+    int got = (int)SendMessageW(e, EM_GETTEXTEX, (WPARAM)&gt, (LPARAM)&w[0]);
+    w.resize((size_t)std::max(0, got));
+    return w;
+  }
+  int n = GetWindowTextLengthW(e);
+  std::wstring w((size_t)n + 1, L'\0');
+  GetWindowTextW(e, &w[0], n + 1);
+  w.resize((size_t)n);
+  return w;
+}
 
 // Subclass for the inline editor: Esc cancels, Enter (single-line) or
 // Ctrl+Enter (multi-line) commits, losing focus commits quietly.
@@ -49,6 +78,10 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else if (!shift && w == 'U') cmd = 3;   // FmtUnderline
         else if (shift && w == 'X') cmd = 4;    // FmtStrike
         else if (!shift && w == 'K') cmd = 5;   // FmtLink
+        if (g_editRich && (w == 'Z' || w == 'Y')) {  // the editor keeps its own history
+          PostMessageW(parent, WM_EDIT_UNDO, (WPARAM)((w == 'Y' || shift) ? 1 : 0), 0);
+          return 0;
+        }
         if (w == VK_OEM_6 || w == VK_OEM_4) {   // Ctrl+] bigger, Ctrl+[ smaller
           PostMessageW(parent, WM_EDIT_SIZE, (WPARAM)(w == VK_OEM_6 ? 1 : -1), 0);
           return 0;
@@ -58,6 +91,9 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
           return 0;
         }
       }
+      if (g_editRich && ctrl && multi &&
+          (w == 'E' || w == 'L' || w == 'R' || w == 'J' || w == '1' || w == '2' || w == '5' || w == 'T'))
+        return 0;  // RichEdit's own paragraph shortcuts mean nothing in a Cairn text box
       if (w == VK_ESCAPE) {
         PostMessageW(parent, WM_EDIT_CANCEL, 0, 0);
         return 0;
@@ -73,9 +109,13 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         SendMessageW(parent, WM_EDIT_PASTE, 0, 0);
         return 0;
       }
+      if (g_editRich) {  // never let RichEdit bring its own formatting (RTF, objects) along
+        SendMessageW(h, EM_PASTESPECIAL, CF_UNICODETEXT, 0);
+        return 0;
+      }
       break;
     case WM_CHAR:  // swallow the characters those keys would otherwise insert/beep
-      if (multi && ctrl && (w == 0x02 || w == 0x09 || w == 0x15 || w == 0x0B || w == 0x18 || w == 0x1D)) return 0;  // Ctrl+B/I/U/K/Shift+X/]
+      if (multi && ctrl && (w == 0x02 || w == 0x09 || w == 0x15 || w == 0x0B || w == 0x18 || w == 0x1D || w == 0x19 || w == 0x1A)) return 0;  // Ctrl+B/I/U/K/Shift+X/]
       if (w == VK_ESCAPE || (w == VK_RETURN && !multi) || (ctrl && (w == 0x0A || w == VK_RETURN)))
         return 0;
       break;
@@ -1075,8 +1115,25 @@ void Canvas::beginTextEdit() {
   DWORD st = WS_CHILD | WS_VISIBLE | WS_BORDER;
   st |= multi ? (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) : (ES_AUTOHSCROLL | ES_CENTER);
   std::wstring text = toEditText(o->prop(multi ? "text" : "label"));
-  editWnd_ = CreateWindowExW(0, L"EDIT", text.c_str(), st, r.left, r.top, w, h, hwnd_,
-                             (HMENU)(INT_PTR)1, hi_, nullptr);
+  static HMODULE richLib = multi ? LoadLibraryW(L"Msftedit.dll") : nullptr;
+  editRich_ = false;
+  if (multi && richLib)
+    editWnd_ = CreateWindowExW(0, L"RICHEDIT50W", text.c_str(), st, r.left, r.top, w, h, hwnd_,
+                               (HMENU)(INT_PTR)1, hi_, nullptr);
+  if (editWnd_) editRich_ = true;
+  if (!editWnd_)
+    editWnd_ = CreateWindowExW(0, L"EDIT", text.c_str(), st, r.left, r.top, w, h, hwnd_,
+                               (HMENU)(INT_PTR)1, hi_, nullptr);
+  g_editRich = editRich_;
+  if (editRich_) {
+    SendMessageW(editWnd_, EM_SETEVENTMASK, 0, ENM_CHANGE);  // EN_CHANGE keeps runs in step
+    SendMessageW(editWnd_, EM_SETUNDOLIMIT, 0, 0);           // we keep the history ourselves
+  }
+  editUndo_.clear();
+  editRedo_.clear();
+  restoring_ = false;
+  lastTyping_ = false;
+  lastEditTick_ = 0;
   editId_ = o->id;
   SendMessageW(editWnd_, EM_LIMITTEXT, 1000000, 0);
   editIsText_ = multi;
@@ -1085,6 +1142,8 @@ void Canvas::beginTextEdit() {
   SendMessageW(editWnd_, WM_SETFONT,
                (WPARAM)fontFor(o->propInt("size", multi ? 14 : 13), o->propInt("bold", 0) != 0), TRUE);
   g_oldEditProc = (WNDPROC)SetWindowLongPtrW(editWnd_, GWLP_WNDPROC, (LONG_PTR)editProc);
+  applyEditStyling();
+  editCur_ = {editSynced_, encodeRuns(editRuns_), editSynced_.size()};
   SetFocus(editWnd_);
   SendMessageW(editWnd_, EM_SETSEL, 0, -1);
 }
@@ -1095,10 +1154,7 @@ void Canvas::endEdit(bool commit, bool refocus) {
   int64_t id = editId_;
   editWnd_ = nullptr;  // first, so the WM_KILLFOCUS that DestroyWindow causes finds nothing to do
   editId_ = 0;
-  int n = GetWindowTextLengthW(e);
-  std::wstring w((size_t)n + 1, L'\0');
-  GetWindowTextW(e, &w[0], n + 1);
-  w.resize((size_t)n);
+  std::wstring w = readEditText(e, editRich_);
   DestroyWindow(e);
   std::string newText = fromEditText(w);
   if (editIsText_) {
@@ -1121,20 +1177,145 @@ void Canvas::endEdit(bool commit, bool refocus) {
   }
   editRuns_.clear();
   editSynced_.clear();
+  editUndo_.clear();
+  editRedo_.clear();
   editIsText_ = false;
+  editRich_ = false;
+  g_editRich = false;
   if (refocus) SetFocus(hwnd_);
   InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 // ------------------------------------------------------------------ rich text
 
-std::wstring Canvas::editText() const {
-  if (!editWnd_) return L"";
-  int n = GetWindowTextLengthW(editWnd_);
-  std::wstring w((size_t)n + 1, L'\0');
-  GetWindowTextW(editWnd_, &w[0], n + 1);
-  w.resize((size_t)n);
-  return w;
+std::wstring Canvas::editText() const { return readEditText(editWnd_, editRich_); }
+
+// The editor's selection as UTF-8 byte offsets into the text it holds (a <= b).
+bool Canvas::editSelBytes(size_t& a, size_t& b) {
+  if (!editWnd_) return false;
+  DWORD s0 = 0, e0 = 0;
+  std::wstring all = editText();
+  if (editRich_) {  // character positions count "\r\n" as one; map them onto the CRLF text
+    CHARRANGE cr{0, 0};
+    SendMessageW(editWnd_, EM_EXGETSEL, 0, (LPARAM)&cr);
+    auto toCrlf = [&](LONG cp) {
+      size_t i = 0;
+      LONG seen = 0;
+      while (i < all.size() && seen < cp) {
+        i += (all[i] == L'\r' && i + 1 < all.size() && all[i + 1] == L'\n') ? 2 : 1;
+        ++seen;
+      }
+      return (DWORD)i;
+    };
+    s0 = toCrlf(cr.cpMin);
+    e0 = toCrlf(cr.cpMax);
+  } else {
+    SendMessageW(editWnd_, EM_GETSEL, (WPARAM)&s0, (LPARAM)&e0);
+  }
+  if (s0 > e0) std::swap(s0, e0);
+  a = fromEditText(all.substr(0, std::min<size_t>(s0, all.size()))).size();
+  b = fromEditText(all.substr(0, std::min<size_t>(e0, all.size()))).size();
+  return true;
+}
+
+// Notes the editor's current text/styling as a step in its own undo history. Typing within a
+// second of the last typing is one step; formatting and pastes are steps of their own.
+void Canvas::recordEdit(bool typing) {
+  if (!editWnd_ || !editRich_ || !editIsText_ || restoring_) return;
+  size_t a = 0, b = 0;
+  editSelBytes(a, b);
+  EditSnap now{editSynced_, encodeRuns(editRuns_), b};
+  if (now.text == editCur_.text && now.runs == editCur_.runs) {
+    editCur_.caret = b;
+    return;
+  }
+  unsigned long t = GetTickCount();
+  bool merge = typing && lastTyping_ && !editUndo_.empty() && t - lastEditTick_ < 1000;
+  if (!merge) {
+    editUndo_.push_back(editCur_);
+    if (editUndo_.size() > 300) editUndo_.erase(editUndo_.begin());
+  }
+  editRedo_.clear();
+  editCur_ = now;
+  lastEditTick_ = t;
+  lastTyping_ = typing;
+}
+
+void Canvas::editUndoRedo(bool redo) {
+  if (!editWnd_ || !editRich_ || !editIsText_) return;
+  auto& from = redo ? editRedo_ : editUndo_;
+  auto& to = redo ? editUndo_ : editRedo_;
+  if (from.empty()) return;
+  size_t a = 0, b = 0;
+  editSelBytes(a, b);
+  editCur_.caret = b;
+  to.push_back(editCur_);
+  EditSnap snap = from.back();
+  from.pop_back();
+  restoring_ = true;
+  editSynced_ = snap.text;
+  editRuns_ = decodeRuns(snap.runs, snap.text.size());
+  SetWindowTextW(editWnd_, toEditText(snap.text).c_str());
+  applyEditStyling();
+  CHARRANGE cr{cpOfByte(snap.text, snap.caret), cpOfByte(snap.text, snap.caret)};
+  SendMessageW(editWnd_, EM_EXSETSEL, 0, (LPARAM)&cr);
+  editCur_ = snap;
+  lastTyping_ = false;
+  restoring_ = false;
+}
+
+// Paints editRuns_ onto the live editor: base style for everything, then each run on top. The
+// runs stay the source of truth; the control only shows them.
+void Canvas::applyEditStyling() {
+  if (!editWnd_ || !editRich_ || !editIsText_ || styling_ || !doc_) return;
+  const Object* o = doc_->object(editId_);
+  if (!o || editSynced_.size() > 20000) return;
+  styling_ = true;
+  HFONT base = fontFor(o->propInt("size", 14), o->propInt("bold", 0) != 0);
+  LOGFONTW lf{};
+  GetObjectW(base, sizeof lf, &lf);
+  HDC dc = GetDC(editWnd_);
+  int dpiY = std::max(1, GetDeviceCaps(dc, LOGPIXELSY));
+  ReleaseDC(editWnd_, dc);
+  int basePx = std::abs(lf.lfHeight);
+  auto twips = [&](int pct) { return (LONG)((long long)basePx * (pct > 0 ? pct : 100) * 1440 / (100LL * dpiY)); };
+
+  CHARRANGE keep{0, 0};
+  SendMessageW(editWnd_, EM_EXGETSEL, 0, (LPARAM)&keep);
+  DWORD oldMask = (DWORD)SendMessageW(editWnd_, EM_SETEVENTMASK, 0, 0);
+  SendMessageW(editWnd_, WM_SETREDRAW, FALSE, 0);
+
+  auto setRange = [&](LONG a, LONG b, const CHARFORMAT2W& cf) {
+    CHARRANGE cr{a, b};
+    SendMessageW(editWnd_, EM_EXSETSEL, 0, (LPARAM)&cr);
+    SendMessageW(editWnd_, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+  };
+  CHARFORMAT2W bf{};
+  bf.cbSize = sizeof bf;
+  bf.dwMask = CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_STRIKEOUT | CFM_COLOR | CFM_SIZE | CFM_FACE;
+  bf.dwEffects = o->propInt("bold", 0) ? CFE_BOLD : 0;
+  bf.yHeight = twips(100);
+  bf.crTextColor = toColorRef(o->propInt("color", 0x222222));
+  lstrcpynW(bf.szFaceName, lf.lfFaceName, LF_FACESIZE);
+  setRange(0, -1, bf);
+
+  for (const Run& r : editRuns_) {
+    if (r.len == 0) continue;
+    CHARFORMAT2W cf = bf;
+    cf.dwEffects = (o->propInt("bold", 0) || (r.flags & kBold) ? CFE_BOLD : 0) | ((r.flags & kItalic) ? CFE_ITALIC : 0) |
+                   ((r.flags & kUnderline) || !r.url.empty() ? CFE_UNDERLINE : 0) | ((r.flags & kStrike) ? CFE_STRIKEOUT : 0);
+    if (r.color >= 0) cf.crTextColor = toColorRef(r.color);
+    else if (!r.url.empty()) cf.crTextColor = RGB(0x0B, 0x57, 0xD0);
+    if (r.size > 0) cf.yHeight = twips(r.size);
+    if (r.flags & kMono) lstrcpynW(cf.szFaceName, L"Consolas", LF_FACESIZE);
+    setRange(cpOfByte(editSynced_, r.start), cpOfByte(editSynced_, r.end()), cf);
+  }
+
+  SendMessageW(editWnd_, EM_EXSETSEL, 0, (LPARAM)&keep);
+  SendMessageW(editWnd_, EM_SETEVENTMASK, 0, (LPARAM)oldMask);
+  SendMessageW(editWnd_, WM_SETREDRAW, TRUE, 0);
+  InvalidateRect(editWnd_, nullptr, TRUE);
+  styling_ = false;
 }
 
 void Canvas::syncEditRuns() {
@@ -1199,15 +1380,15 @@ void Canvas::changeTextSize(int dir) {
   if (editWnd_) {  // the selected characters of the box being edited
     if (!editIsText_) return;
     syncEditRuns();
-    DWORD s0 = 0, e0 = 0;
-    SendMessageW(editWnd_, EM_GETSEL, (WPARAM)&s0, (LPARAM)&e0);
-    std::wstring all = editText();
-    size_t a = fromEditText(all.substr(0, s0)).size(), b = fromEditText(all.substr(0, e0)).size();
+    size_t a = 0, b = 0;
+    editSelBytes(a, b);
     if (a >= b) return;
     restyleRange(editRuns_, a, b, editSynced_.size(), [&](Run& r) {
       int next = stepSizePercent(r.size, dir);
       r.size = next == 100 ? 0 : next;
     });
+    applyEditStyling();
+    recordEdit(false);
     SetFocus(editWnd_);
     return;
   }
@@ -1235,16 +1416,16 @@ void Canvas::applyFormat(int cmd) {
   if (editWnd_) {  // formatting the selected characters of the box being edited
     if (!editIsText_) return;
     syncEditRuns();
-    DWORD s0 = 0, e0 = 0;
-    SendMessageW(editWnd_, EM_GETSEL, (WPARAM)&s0, (LPARAM)&e0);
-    std::wstring all = editText();
-    size_t a = fromEditText(all.substr(0, s0)).size(), b = fromEditText(all.substr(0, e0)).size();
+    size_t a = 0, b = 0;
+    editSelBytes(a, b);
     if (a >= b) return;  // nothing selected
     FormatArg arg;
     inFormat_ = true;  // dialogs steal focus; that must not end the edit
     bool ok = askFormat(cmd, editRuns_, a, b, arg);
     inFormat_ = false;
     if (ok) applyFormatArg(editRuns_, editSynced_.size(), a, b, cmd, arg);
+    applyEditStyling();
+    recordEdit(false);
     SetFocus(editWnd_);
     return;
   }
@@ -1303,13 +1484,13 @@ void Canvas::pasteRichIntoEditor() {
     return;
   }
   syncEditRuns();
-  DWORD s0 = 0, e0 = 0;
-  SendMessageW(editWnd_, EM_GETSEL, (WPARAM)&s0, (LPARAM)&e0);
-  std::wstring all = editText();
-  size_t a = fromEditText(all.substr(0, std::min<size_t>(s0, e0))).size();
+  size_t a = 0, b0 = 0;
+  editSelBytes(a, b0);
   SendMessageW(editWnd_, EM_REPLACESEL, TRUE, (LPARAM)toEditText(rt.text).c_str());  // EN_CHANGE shifts the runs
   syncEditRuns();
   overlayRuns(editRuns_, rt.runs, a, rt.text.size(), editSynced_.size());
+  applyEditStyling();
+  recordEdit(false);
 }
 
 int Canvas::measureRichHeight(const std::string& utf8, const std::string& runsEnc, int pt, int widthUnits) {
@@ -1661,10 +1842,17 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
       if (onKeyDown(w)) return 0;
       break;
     case WM_COMMAND:
-      if (LOWORD(w) == 1 && HIWORD(w) == EN_CHANGE && editWnd_ && editIsText_) syncEditRuns();
+      if (LOWORD(w) == 1 && HIWORD(w) == EN_CHANGE && editWnd_ && editIsText_ && !restoring_ && !styling_) {
+        syncEditRuns();
+        applyEditStyling();
+        recordEdit(true);
+      }
       return 0;
     case WM_EDIT_FORMAT:
       applyFormat((int)w);
+      return 0;
+    case WM_EDIT_UNDO:
+      editUndoRedo(w != 0);
       return 0;
     case WM_EDIT_SIZE:
       changeTextSize((int)w);

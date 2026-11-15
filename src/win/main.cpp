@@ -29,7 +29,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.8.0";
+constexpr const char* kVersion = "0.9.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -2026,7 +2026,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int nShow) {
     wchar_t cls[16] = {};
     HWND f = GetFocus();
     if (f) GetClassNameW(f, cls, 16);
-    bool typing = f && _wcsicmp(cls, L"Edit") == 0;
+    bool typing = f && (_wcsicmp(cls, L"Edit") == 0 || _wcsicmp(cls, L"RICHEDIT50W") == 0);  // the live text editor
     if (!typing && TranslateAcceleratorW(g.hwnd, g.accel, &msg)) continue;
     TranslateMessage(&msg);
     DispatchMessageW(&msg);

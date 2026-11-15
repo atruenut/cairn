@@ -23,7 +23,7 @@ dependencies; one static exe (about 4 MB).
     build.bat       # Windows, no make needed (see below)
     make            # build/cairn.exe  (cross: x86_64-w64-mingw32-g++ on Linux)
     make CROSS=     # on Windows with MinGW-w64 on PATH
-    make test       # UI-free core tests, run natively (274 checks)
+    make test       # UI-free core tests, run natively (282 checks)
 
 `build.bat` needs MinGW-w64 on PATH. Easiest install:
 `winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`, then open a new
@@ -56,6 +56,10 @@ bigger or smaller; inside a text box being edited they resize just the selected 
 
 **Command palette.** Ctrl+P. Drag it by its top strip; it reopens where you left it.
 
+**Live styled editing.** While you edit a text box, bold, italic, underline, strikethrough, code, colours, sizes
+and links show as you work (it uses Windows' RichEdit control, falling back to a plain box if that's unavailable).
+Ctrl+Z / Ctrl+Y inside the box undo and redo typing and formatting as separate steps.
+
 **Find and Replace.** Ctrl+H (Edit menu) replaces text across this page or all pages, in text objects and button
 labels. It tells you how many matches it found before changing anything, keeps bold/colour/links attached to the
 right words, and the whole replace is a single undo step.
@@ -87,7 +91,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.8.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.9.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

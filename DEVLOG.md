@@ -494,6 +494,43 @@ Honest limits:
 - Page titles, tags and image names are not replaced.
 - Wine only.
 
+## Entry 15: seeing the bold while you type
+
+Until now, formatting a word showed up only after you finished editing, because
+the inline editor was a plain EDIT box that can't draw styles. It always felt
+slightly wrong to press Ctrl+B and see nothing. Now the editor is a RichEdit
+control that *displays* the styling live.
+
+The design choice that made this tractable: my runs list is still the single
+source of truth, and the RichEdit is only a view of it. I never read formatting
+back out of the control. After every change I repaint the runs onto it. That
+meant none of the careful storage, copy/paste and replace logic had to change.
+
+Two things bit me, and I'm glad I tested rather than trusted:
+
+1. **Undo broke.** RichEdit records my repainting as undoable edits, so Ctrl+Z
+   undid my own repaint, which triggered another repaint, forever: nothing ever
+   undid. I turned its native undo off and gave the editor a small history of
+   its own (text, styles, caret; typing within a second is one step, a format
+   command or a paste is its own step).
+2. **Worse: Ctrl+Z was undoing the document.** The main loop decides "the user is
+   typing, leave the shortcuts alone" by checking that the focused window's class
+   is "Edit". A RichEdit has another class, so Ctrl+Z, Ctrl+A, Delete and the
+   F-keys were all firing on the *page* while someone typed. It would have been a
+   miserable bug on real Windows. The guard now knows both classes.
+
+I also moved the byte-offset-to-UTF-16 mapping into the tested core, since an
+emoji is two UTF-16 units and four UTF-8 bytes. In the app I confirmed bold
+lands on exactly the right character after accented letters, in both the
+RichEdit editor and the plain fallback (which I forced by hiding msftedit).
+
+Honest limits:
+- Wine's RichEdit, not Microsoft's: the real one may differ in line spacing and
+  caret details. The undo and shortcut logic is mine and shouldn't.
+- Long text boxes (over 20,000 bytes) fall back to showing no live styling.
+- Ctrl+B with nothing selected still does nothing; "typing style" is still open.
+- Line breaks in the editor can differ a little from how the finished box lays out.
+
 ### TODO
 
 - Dark mode.

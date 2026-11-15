@@ -66,7 +66,11 @@ class Canvas {
   // (a percentage of the box's size); otherwise it resizes the font of every selected text
   // object and button.
   void changeTextSize(int dir);
-  bool selectionHasSizable() const;  // any selected Text or Button
+  bool selectionHasSizable() const;
+  void recordEdit(bool typing);               // note the editor's state for its undo history
+  void editUndoRedo(bool redo);
+  void applyEditStyling();                    // paint editRuns_ onto the live editor
+  bool editSelBytes(size_t& a, size_t& b);    // the editor's selection as UTF-8 byte offsets  // any selected Text or Button
 
   size_t selectionCount() const { return sel_.size(); }
   bool selectionHasText() const;  // any selected Text object (for the Format menu)
@@ -197,6 +201,13 @@ class Canvas {
   Runs editRuns_;           // formatting of the text being edited, kept in step with the edit box
   std::string editSynced_;  // the text editRuns_ currently describes
   bool editIsText_ = false, inFormat_ = false;
+  bool editRich_ = false, styling_ = false;  // editing in a RichEdit that mirrors editRuns_
+  // The live editor has its own undo (RichEdit's native one would record our restyling passes).
+  struct EditSnap { std::string text, runs; size_t caret = 0; };
+  std::vector<EditSnap> editUndo_, editRedo_;
+  EditSnap editCur_;
+  unsigned long lastEditTick_ = 0;
+  bool lastTyping_ = false, restoring_ = false;
   int64_t editId_ = 0;
 };
 
