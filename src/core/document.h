@@ -71,6 +71,12 @@ class Document {
   // Page ids matching the text (prefix match on every word, plus title substring).
   // Empty text returns every page in order.
   std::vector<int64_t> search(const std::string& text) const;
+
+  // Find & replace in the text of text objects and the labels of buttons (not titles).
+  // onlyPage = 0 means every page. dryRun counts without changing anything. One undo step.
+  struct ReplaceResult { int matches = 0, objects = 0, pages = 0; };
+  ReplaceResult replaceAll(const std::string& find, const std::string& repl, bool matchCase,
+                           int64_t onlyPage, bool dryRun);
   // Pages whose buttons point at `pageId`.
   std::vector<std::pair<int64_t, std::string>> backlinks(int64_t pageId) const;
 

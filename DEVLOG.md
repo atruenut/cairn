@@ -466,6 +466,34 @@ Honest limits:
 - Wine tested the dialog and the files written; the page picture came from a
   headless browser.
 
+## Entry 14: replace, and a test that was lying to me
+
+Find and Replace across pages. The interesting part was not finding text (that
+is a loop) but keeping rich text intact: replacing a word must not smear its
+bold over its neighbours or silently drop it. My first version lost the style
+whenever the replaced text *was* a whole styled word, because the edit tracker
+(built for typing) reads "everything in this run changed" as "the run is gone".
+The tests caught it immediately; the fix is that a replacement inherits the
+style of the first character it replaces.
+
+The humbling bit was the mutation testing. I deleted the dry-run guard to see
+if the tests would notice, and they did not: 0 failures. I had written the
+guard twice (once when collecting changes, once before applying them), so
+removing either one alone is invisible; only removing both is caught. That is
+a harmless kind of redundancy, but it was a good reminder that a passing
+mutant is a question, not always a bug. I checked each one.
+
+The UI is deliberately cautious: it counts first and asks "Replace 4 matches in
+3 objects on 2 pages?" before touching anything, and the whole thing is one
+undo. I watched it in the app: a lowercase search matched "BOLDPASTE" and the
+stored text and its bold run came out right.
+
+Honest limits:
+- Matching is plain text, case-insensitive only for ASCII letters (so "e" and
+  "E" match, but "é" and "É" do not). No regular expressions, no whole-word option.
+- Page titles, tags and image names are not replaced.
+- Wine only.
+
 ### TODO
 
 - Dark mode.

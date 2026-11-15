@@ -614,6 +614,68 @@ static std::string fileOf(const std::vector<ExportFile>& fs, const std::string& 
   return "\x01MISSING";
 }
 
+
+static void testReplace() {
+  std::printf("find & replace\n");
+  using namespace cairn;
+  std::string t = "Cat cat CAT concatenate";
+  Runs none;
+  CHECK(replaceInText(t, none, "cat", "dog", false) == 4 && t == "dog dog dog condogenate");
+  t = "Cat cat CAT";
+  CHECK(replaceInText(t, none, "cat", "dog", true) == 1 && t == "Cat dog CAT");
+  t = "aaa";
+  CHECK(replaceInText(t, none, "aa", "b", true) == 1 && t == "ba");  // non-overlapping
+  t = "x";
+  CHECK(replaceInText(t, none, "", "y", true) == 0 && t == "x");
+  t = "a.b";
+  CHECK(replaceInText(t, none, ".", "", true) == 1 && t == "ab");    // literal, not a pattern
+  t = "h\xC3\xA9llo \xC3\xA9";
+  CHECK(replaceInText(t, none, "\xC3\xA9", "e", true) == 2 && t == "hello e");
+  t = "abc";
+  CHECK(replaceInText(t, none, "abc", std::string(1100000, 'z'), true) == 0 && t == "abc");  // size cap
+  // Styling follows the text: "ab CD ef" with CD bold; replacing "ab" by "xyz!" shifts it.
+  t = "ab CD ef";
+  Runs r = decodeRuns("3,2,1,,,", t.size());
+  CHECK(replaceInText(t, r, "ab", "xyz!", true) == 1 && t == "xyz! CD ef");
+  CHECK(rangeAllHave(r, 5, 7, kBold) && !rangeAllHave(r, 0, 5, kBold));
+  // Replacing the styled word itself keeps its style; shrinking and growing both work.
+  t = "ab CD ef"; r = decodeRuns("3,2,1,,,", t.size());
+  CHECK(replaceInText(t, r, "CD", "QRS", true) == 1 && t == "ab QRS ef");
+  CHECK(rangeAllHave(r, 3, 6, kBold) && !rangeAllHave(r, 6, 9, kBold));
+
+  std::string path = tmpPath("cairn_replace.cairn");
+  auto d = Document::create(path, false);
+  int64_t p1 = d->addPage("One"), p2 = d->addPage("Two");
+  Object a = textObj(0, 0, "Red fish, red hat");
+  a.setProp("runs", "0,3,1,,,");
+  int64_t a1 = d->addObject(p1, a);
+  d->addObject(p2, textObj(0, 0, "no match here"));
+  Object b = textObj(0, 40, "RED door");
+  int64_t b2 = d->addObject(p2, b);
+  Object btn; btn.type = ObjType::Button; btn.w = 80; btn.h = 24; btn.setProp("label", "Red button");
+  int64_t b3 = d->addObject(p2, btn);
+
+  auto dry = d->replaceAll("red", "blue", false, 0, true);
+  CHECK(dry.matches == 4 && dry.objects == 3 && dry.pages == 2);
+  CHECK(d->object(a1)->prop("text") == "Red fish, red hat");  // dry run changes nothing
+  auto one = d->replaceAll("red", "blue", false, p1, true);
+  CHECK(one.matches == 2 && one.pages == 1);
+
+  auto done = d->replaceAll("red", "blue", false, 0, false);
+  CHECK(done.matches == 4);
+  CHECK(d->object(a1)->prop("text") == "blue fish, blue hat");
+  CHECK(d->object(b2)->prop("text") == "blue door");
+  CHECK(d->object(b3)->prop("label") == "blue button");
+  Runs ra = decodeRuns(d->object(a1)->prop("runs"), d->object(a1)->prop("text").size());
+  CHECK(rangeAllHave(ra, 0, 4, kBold) && !rangeAllHave(ra, 4, 10, kBold));  // "blue" kept the bold
+  CHECK(d->search("blue").size() == 2);   // the search index followed
+  CHECK(d->search("red").empty());
+  CHECK(d->undo());                        // the whole replace is one undo step
+  CHECK(d->object(a1)->prop("text") == "Red fish, red hat" && d->object(b3)->prop("label") == "Red button");
+  CHECK(d->search("red").size() == 2);
+  CHECK(d->replaceAll("zzz", "y", false, 0, false).matches == 0);
+}
+
 static void testExportSite() {
   std::printf("export as website\n");
   std::string path = tmpPath("cairn_export.cairn");
@@ -800,6 +862,7 @@ int main() {
   testHtmlCopy();
   testSizeSteps();
   testExportSite();
+  testReplace();
   testPageOrder();
   testUrls();
   testProps();

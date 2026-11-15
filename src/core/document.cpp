@@ -1,4 +1,5 @@
 #include "document.h"
+#include "rich.h"
 
 #include "sha256.h"
 
@@ -879,6 +880,36 @@ void Document::seedStarter() {
   tourObjs.push_back(button(40, 470, 200, 44, "Back to Welcome", home));
   addObjects(tour, std::move(tourObjs), "Starter");
   clearHistory();
+}
+
+Document::ReplaceResult Document::replaceAll(const std::string& find, const std::string& repl, bool matchCase,
+                                             int64_t onlyPage, bool dryRun) {
+  ReplaceResult r;
+  if (find.empty()) return r;
+  std::vector<Object> changed;
+  for (const Page& p : pages_) {
+    if (onlyPage && p.id != onlyPage) continue;
+    bool pageHit = false;
+    for (const Object& o : p.objects) {
+      const char* key = o.type == ObjType::Text ? "text" : o.type == ObjType::Button ? "label" : nullptr;
+      if (!key) continue;
+      std::string text = o.prop(key);
+      Runs runs = o.type == ObjType::Text ? decodeRuns(o.prop("runs"), text.size()) : Runs{};
+      int n = replaceInText(text, runs, find, repl, matchCase);
+      if (!n) continue;
+      r.matches += n;
+      ++r.objects;
+      pageHit = true;
+      if (dryRun) continue;
+      Object a = o;
+      a.setProp(key, text);
+      if (o.type == ObjType::Text) a.setProp("runs", encodeRuns(runs));
+      changed.push_back(a);
+    }
+    if (pageHit) ++r.pages;
+  }
+  if (!dryRun && !changed.empty()) updateObjects(changed, "Replace All");
+  return r;
 }
 
 }  // namespace cairn

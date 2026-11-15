@@ -29,7 +29,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.7.0";
+constexpr const char* kVersion = "0.8.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -38,7 +38,7 @@ enum Ids {
 
   IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXIT,
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT,
-  IDM_EDIT_EDITTEXT, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
+  IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
   IDM_PAGE_NEW, IDM_PAGE_RENAME, IDM_PAGE_DELETE, IDM_PAGE_PROPS, IDM_PAGE_BACK, IDM_PAGE_FORWARD,
   IDM_PAGE_FIND, IDM_PAGE_MOVEUP, IDM_PAGE_MOVEDOWN,
@@ -461,6 +461,39 @@ void cmdExportSite() {
   }
 }
 
+// Find & replace over the text of text objects and button labels. Always shows what it is about
+// to do (a dry run) and asks before changing anything; the whole replace is one undo step.
+void cmdReplace() {
+  if (!g.doc) return;
+  static std::wstring lastFind, lastRepl;
+  static bool lastCase = false;
+  static int lastScope = 1;
+  PropForm f(g.hwnd, L"Find and Replace");
+  int ifind = f.addText(L"Find", lastFind);
+  int irepl = f.addText(L"Replace with", lastRepl);
+  int iscope = f.addCombo(L"Where", {L"This page", L"All pages"}, lastScope);
+  int icase = f.addCheck(L"Match case", lastCase);
+  if (!f.run()) return;
+  lastFind = f.text(ifind);
+  lastRepl = f.text(irepl);
+  lastScope = f.combo(iscope);
+  lastCase = f.check(icase);
+  if (lastFind.empty()) return;
+  int64_t only = lastScope == 0 ? g.canvas.pageId() : 0;
+  std::string fd = narrow(lastFind), rp = narrow(lastRepl);
+  auto dry = g.doc->replaceAll(fd, rp, lastCase, only, true);
+  if (dry.matches == 0) {
+    MessageBoxW(g.hwnd, L"No matches found.", kAppName, MB_OK | MB_ICONINFORMATION);
+    return;
+  }
+  std::wstring msg = L"Replace " + std::to_wstring(dry.matches) + (dry.matches == 1 ? L" match" : L" matches") +
+                     L" in " + std::to_wstring(dry.objects) + (dry.objects == 1 ? L" object" : L" objects") +
+                     L" on " + std::to_wstring(dry.pages) + (dry.pages == 1 ? L" page" : L" pages") +
+                     L"?\n\nThis is one undo step (Ctrl+Z).";
+  if (MessageBoxW(g.hwnd, msg.c_str(), kAppName, MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+  g.doc->replaceAll(fd, rp, lastCase, only, false);
+}
+
 // -------------------------------------------------------------- page commands
 
 bool promptText(const wchar_t* title, const wchar_t* label, std::wstring& v) {
@@ -782,6 +815,7 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_EDIT_DUPLICATE, L"Duplicate Selection", L"Ctrl+D"},
     {IDM_EDIT_DELETE, L"Delete Selection", L"Del"},
     {IDM_EDIT_SELECTALL, L"Select All", L"Ctrl+A"},
+    {IDM_EDIT_REPLACE, L"Find and Replace...", L"Ctrl+H"},
     {IDM_EDIT_PROPS, L"Properties of Selection", L"Alt+Enter"},
     {IDM_EDIT_FRONT, L"Bring to Front", L""},
     {IDM_EDIT_BACK, L"Send to Back", L""},
@@ -1039,6 +1073,7 @@ void onCommand(int id, int code, HWND ctl) {
         layout();
         break;
       case IDM_EDIT_EDITTEXT: g.canvas.beginTextEdit(); break;
+      case IDM_EDIT_REPLACE: cmdReplace(); break;
       case IDM_EDIT_PROPS: g.canvas.setEditMode(true); g.canvas.editProperties(); break;
       case IDM_EDIT_DUPLICATE: g.canvas.duplicateSelection(); break;
       case IDM_EDIT_DELETE: g.canvas.deleteSelection(); break;
@@ -1133,6 +1168,7 @@ HMENU buildMenu() {
     AppendMenuW(fmt, MF_STRING, IDM_FMT_CLEAR, L"C&lear Formatting");
     AppendMenuW(edit, MF_POPUP, (UINT_PTR)fmt, L"Text &Format");
   }
+  add(edit, IDM_EDIT_REPLACE, L"Find and &Replace...\tCtrl+H");
   add(edit, IDM_EDIT_PROPS, L"&Properties...\tAlt+Enter");
   add(edit, IDM_EDIT_DUPLICATE, L"&Duplicate\tCtrl+D");
   add(edit, IDM_EDIT_DELETE, L"De&lete\tDel");
@@ -1181,7 +1217,7 @@ HACCEL buildAccel() {
       {C, 'Z', IDM_EDIT_UNDO},         {C, 'Y', IDM_EDIT_REDO},
       {CS, 'Z', IDM_EDIT_REDO},        {C, 'D', IDM_EDIT_DUPLICATE},
       {C, 'A', IDM_EDIT_SELECTALL},    {C, 'E', IDM_VIEW_EDITMODE},
-      {C, 'F', IDM_PAGE_FIND},         {CS, 'T', IDM_EDIT_ADDTEXT},
+      {C, 'F', IDM_PAGE_FIND},         {C, 'H', IDM_EDIT_REPLACE},         {CS, 'T', IDM_EDIT_ADDTEXT},
       {CS, 'B', IDM_EDIT_ADDBUTTON},   {CS, 'R', IDM_EDIT_ADDRECT},
       {CS, 'N', IDM_PAGE_NEW},         {A, VK_LEFT, IDM_PAGE_BACK},
       {A, VK_RIGHT, IDM_PAGE_FORWARD},

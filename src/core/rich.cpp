@@ -827,4 +827,47 @@ int stepSizePercent(int cur, int dir) {
   return stepLadder(ladder, cur, dir);
 }
 
+namespace {
+char lowerAsciiChar(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+
+bool matchesAt(const std::string& t, size_t pos, const std::string& f, bool matchCase) {
+  if (pos + f.size() > t.size()) return false;
+  for (size_t i = 0; i < f.size(); ++i) {
+    char a = t[pos + i], b = f[i];
+    if (!matchCase) { a = lowerAsciiChar(a); b = lowerAsciiChar(b); }
+    if (a != b) return false;
+  }
+  return true;
+}
+}  // namespace
+
+int replaceInText(std::string& text, Runs& runs, const std::string& find, const std::string& repl, bool matchCase) {
+  if (find.empty()) return 0;
+  std::vector<size_t> hits;  // ASCII case folding never matches inside a UTF-8 sequence
+  for (size_t i = 0; i + find.size() <= text.size();) {
+    if (matchesAt(text, i, find, matchCase)) { hits.push_back(i); i += find.size(); }
+    else ++i;
+  }
+  if (hits.empty()) return 0;
+  size_t finalSize = text.size() - hits.size() * find.size() + hits.size() * repl.size();
+  if (finalSize > (1u << 20)) return 0;
+  // From the end backwards, so earlier offsets stay valid while later text changes.
+  for (size_t k = hits.size(); k-- > 0;) {
+    // The replacement inherits the style of the first character it replaces.
+    const Run* src = nullptr;
+    Run saved;
+    for (const Run& r : runs)
+      if (r.start <= hits[k] && hits[k] < r.end()) { saved = r; src = &saved; break; }
+    std::string before = text;
+    text.replace(hits[k], find.size(), repl);
+    shiftRunsForEdit(runs, before, text);
+    if (src && !repl.empty())
+      restyleRange(runs, hits[k], hits[k] + repl.size(), text.size(), [&](Run& x) {
+        x.flags = src->flags; x.color = src->color; x.size = src->size; x.url = src->url;
+      });
+  }
+  normalizeRuns(runs, text.size());
+  return (int)hits.size();
+}
+
 }  // namespace cairn

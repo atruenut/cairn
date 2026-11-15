@@ -66,6 +66,12 @@ std::string htmlFragmentFromClipboard(const std::string& clip, std::string* sour
 // resolved against sourceUrl's origin when given.
 RichText htmlToRich(const std::string& html, const std::string& sourceUrl = "");
 
+// ---- find & replace ------------------------------------------------------------
+// Replaces every non-overlapping match of `find` (left to right) in `text`, keeping `runs`
+// attached to the right characters. Matching ignores ASCII case unless matchCase. Returns the
+// number of replacements; empty `find`, or a result over 1 MB, changes nothing and returns 0.
+int replaceInText(std::string& text, Runs& runs, const std::string& find, const std::string& repl, bool matchCase);
+
 // ---- size steps ----------------------------------------------------------------
 // One step bigger (dir > 0) or smaller (dir < 0) along a fixed ladder; always lands on a rung
 // and never leaves the ladder. Points are for a whole object, percent is for a styled span.
