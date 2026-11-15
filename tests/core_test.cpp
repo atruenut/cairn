@@ -6,6 +6,7 @@
 
 #include "document.h"
 #include "rich.h"
+#include "export.h"
 #include "urls.h"
 #include "sha256.h"
 
@@ -607,6 +608,73 @@ static void testSizeSteps() {
   CHECK(v == 400);
 }
 
+
+static std::string fileOf(const std::vector<ExportFile>& fs, const std::string& path) {
+  for (const auto& f : fs) if (f.path == path) return f.data;
+  return "\x01MISSING";
+}
+
+static void testExportSite() {
+  std::printf("export as website\n");
+  std::string path = tmpPath("cairn_export.cairn");
+  auto d = Document::create(path, false);
+  int64_t p1 = d->addPage("Home <b>&\"x\"");
+  int64_t p2 = d->addPage("Second");
+  Object t = textObj(10, 20, "Hello <script>alert(1)</script> & goodbye");
+  t.setProp("runs", "0,5,1,,,");  // "Hello" bold
+  d->addObject(p1, t);
+  Object b; b.type = ObjType::Button; b.x = 5; b.y = 6; b.w = 100; b.h = 30;
+  b.setProp("label", "go <next>"); b.setPropInt("target", (long)p2);
+  d->addObject(p1, b);
+  Object web = b; web.props.clear(); web.setProp("label", "web"); web.setProp("open", "https://example.org/a?b=1&c=2");
+  d->addObject(p1, web);
+  Object evil = b; evil.props.clear(); evil.setProp("label", "evil"); evil.setProp("open", "javascript:alert(1)");
+  d->addObject(p1, evil);
+  Object file = b; file.props.clear(); file.setProp("label", "local"); file.setProp("open", "C:\\Windows\\evil.exe");
+  d->addObject(p1, file);
+  int64_t blob = d->addBlob("PNGDATA", "image/png", "pic\".png");
+  d->addObject(p2, imageObj(blob, "pic\".png"));
+  int64_t odd = d->addBlob("x", "application/x-evil", "odd.bin");
+  d->addObject(p2, imageObj(odd, "odd.bin"));
+  d->setPageProps(p2, 800, 600, 0x112233, nullptr);
+
+  auto files = exportSite(*d, "My <Site>");
+  CHECK(files.size() >= 4 && files[0].path == "index.html");
+  std::string idx = fileOf(files, "index.html");
+  CHECK(idx.find("My &lt;Site&gt;") != std::string::npos);
+  CHECK(idx.find(exportPageFile(p1)) != std::string::npos && idx.find(exportPageFile(p2)) != std::string::npos);
+  CHECK(idx.find("<b>&\"x\"") == std::string::npos);  // titles are escaped
+
+  std::string h1 = fileOf(files, exportPageFile(p1));
+  CHECK(h1.find("<script>") == std::string::npos);
+  CHECK(h1.find("&lt;script&gt;") != std::string::npos);
+  CHECK(h1.find("<b>Hello</b>") != std::string::npos);
+  CHECK(h1.find("left:10px;top:20px") != std::string::npos);
+  CHECK(h1.find("href=\"" + exportPageFile(p2) + "\"") != std::string::npos);  // button -> page
+  CHECK(h1.find("go &lt;next&gt;") != std::string::npos);
+  CHECK(h1.find("href=\"https://example.org/a?b=1&amp;c=2\"") != std::string::npos);
+  CHECK(h1.find("javascript:") == std::string::npos);
+  CHECK(h1.find("evil.exe") == std::string::npos && h1.find("C:\\") == std::string::npos);
+  CHECK(h1.find("<a class=\"b\" href=\"javascript") == std::string::npos);
+  CHECK(h1.find("Second &rarr;") != std::string::npos);  // next-page nav
+
+  std::string h2 = fileOf(files, exportPageFile(p2));
+  CHECK(h2.find("width:800px;height:600px;background:#112233") != std::string::npos);
+  CHECK(h2.find("src=\"images/b" + std::to_string(blob) + ".png\"") != std::string::npos);
+  CHECK(h2.find("alt=\"pic&quot;.png\"") != std::string::npos);
+  CHECK(fileOf(files, "images/b" + std::to_string(blob) + ".png") == "PNGDATA");
+  CHECK(h2.find("images/b" + std::to_string(odd)) == std::string::npos);  // unknown type: not exported
+  CHECK(h2.find("odd.bin") != std::string::npos);                         // placeholder keeps its name
+  CHECK(h2.find("&larr; Home") != std::string::npos);
+
+  // A button pointing at a page that no longer exists must not produce a dangling link.
+  Object gone = b; gone.props.clear(); gone.setProp("label", "gone"); gone.setPropInt("target", 99999);
+  d->addObject(p2, gone);
+  std::string h2b = fileOf(exportSite(*d, "s"), exportPageFile(p2));
+  CHECK(h2b.find("page-99999") == std::string::npos);
+  CHECK(exportSite(*Document::create(tmpPath("cairn_export2.cairn"), false), "empty").size() == 1);
+}
+
 static void testHtmlCopy() {
   using namespace cairn;
   // Plain text is escaped and newlines become <br>.
@@ -731,6 +799,7 @@ int main() {
   testHtmlPaste();
   testHtmlCopy();
   testSizeSteps();
+  testExportSite();
   testPageOrder();
   testUrls();
   testProps();

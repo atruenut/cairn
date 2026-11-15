@@ -5,6 +5,7 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 
 #include <algorithm>
 #include <cctype>
@@ -12,12 +13,14 @@
 #include <cstdio>
 #include <cwctype>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "canvas.h"
 #include "document.h"
+#include "export.h"
 #include "propform.h"
 
 using namespace cairn;
@@ -26,14 +29,14 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.6.0";
+constexpr const char* kVersion = "0.7.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
 enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_STATUS, IDC_LINKLABEL,
 
-  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXIT,
+  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXIT,
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT,
   IDM_EDIT_EDITTEXT, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
@@ -402,6 +405,62 @@ void cmdSaveCopy() {
   g.doc->saveCopy(narrow(p));
 }
 
+bool pickFolder(std::wstring& out) {
+  IFileOpenDialog* dlg = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return false;
+  DWORD opts = 0;
+  dlg->GetOptions(&opts);
+  dlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+  dlg->SetTitle(L"Choose where to put the exported website");
+  bool ok = false;
+  if (SUCCEEDED(dlg->Show(g.hwnd))) {
+    IShellItem* it = nullptr;
+    if (SUCCEEDED(dlg->GetResult(&it))) {
+      PWSTR name = nullptr;
+      if (SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &name))) {
+        out = name;
+        CoTaskMemFree(name);
+        ok = true;
+      }
+      it->Release();
+    }
+  }
+  dlg->Release();
+  return ok;
+}
+
+// Writes the document as a folder of static HTML pages into a NEW subfolder of the chosen
+// folder (never into an existing one), then offers to open it.
+void cmdExportSite() {
+  if (!g.doc) return;
+  std::wstring parent;
+  if (!pickFolder(parent)) return;
+  namespace fs = std::filesystem;
+  std::wstring stem = fs::path(widen(g.doc->path())).stem().wstring();
+  if (stem.empty()) stem = L"Cairn";
+  fs::path dir;
+  try {
+    for (int i = 1; i < 1000; ++i) {
+      dir = fs::path(parent) / (stem + L" (website)" + (i > 1 ? L" " + std::to_wstring(i) : L""));
+      if (!fs::exists(dir)) break;
+    }
+    auto files = exportSite(*g.doc, narrow(stem));
+    fs::create_directories(dir / L"images");
+    for (const ExportFile& f : files) {
+      std::ofstream out(dir / fs::path(widen(f.path)), std::ios::binary);
+      if (!out) throw std::runtime_error("couldn't write " + f.path);
+      out.write(f.data.data(), (std::streamsize)f.data.size());
+      if (!out) throw std::runtime_error("couldn't write " + f.path);
+    }
+    std::wstring msg = L"Exported " + std::to_wstring(g.doc->pages().size()) + L" page(s) to:\n" + dir.wstring() +
+                       L"\n\nButtons that open local files or folders are not included. Open it now?";
+    if (MessageBoxW(g.hwnd, msg.c_str(), kAppName, MB_YESNO | MB_ICONINFORMATION) == IDYES)
+      ShellExecuteW(g.hwnd, L"open", (dir / L"index.html").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  } catch (const std::exception& e) {
+    showError(widen(std::string("The export didn't finish: ") + e.what()));
+  }
+}
+
 // -------------------------------------------------------------- page commands
 
 bool promptText(const wchar_t* title, const wchar_t* label, std::wstring& v) {
@@ -729,6 +788,7 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_FILE_NEW, L"New Cairn File", L"Ctrl+N"},
     {IDM_FILE_OPEN, L"Open Cairn File", L"Ctrl+O"},
     {IDM_FILE_SAVECOPY, L"Save a Copy As", L""},
+    {IDM_FILE_EXPORT, L"Export as Website...", L""},
     {IDM_HELP_ABOUT, L"About Cairn", L""},
 };
 
@@ -925,6 +985,7 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_FILE_NEW: cmdNew(); break;
       case IDM_FILE_OPEN: cmdOpen(); break;
       case IDM_FILE_SAVECOPY: cmdSaveCopy(); break;
+      case IDM_FILE_EXPORT: cmdExportSite(); break;
       case IDM_FILE_EXIT: SendMessageW(g.hwnd, WM_CLOSE, 0, 0); break;
 
       case IDM_EDIT_UNDO: if (g.doc) g.doc->undo(); break;
@@ -1037,6 +1098,7 @@ HMENU buildMenu() {
   add(file, IDM_FILE_NEW, L"&New Cairn...\tCtrl+N");
   add(file, IDM_FILE_OPEN, L"&Open...\tCtrl+O");
   add(file, IDM_FILE_SAVECOPY, L"Save a &Copy As...");
+  add(file, IDM_FILE_EXPORT, L"&Export as Website...");
   sep(file);
   add(file, IDM_FILE_EXIT, L"E&xit");
   AppendMenuW(bar, MF_POPUP, (UINT_PTR)file, L"&File");
@@ -1174,6 +1236,7 @@ void updateMenuState() {
   en(IDM_EDIT_BACK, edit && nsel > 0);
   en(IDM_EDIT_SELECTALL, edit);
   en(IDM_FILE_SAVECOPY, has);
+  en(IDM_FILE_EXPORT, has);
   {
     int ci = currentPageIndex();
     en(IDM_PAGE_MOVEUP, ci > 0);

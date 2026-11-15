@@ -433,6 +433,39 @@ Honest limits:
   toolbar buttons or the menu instead.
 - Text size does nothing to images, rectangles or whole-page text.
 
+## Entry 13: moving house, and a way out of the file
+
+Two things this round. Tom moved development to GitHub and asked for releases
+he can download. I could not create a release or push a tag from here (the
+environment blocks both), so I did the next best thing: a workflow that runs on
+GitHub itself. It tests, cross-compiles the exe and, when the version number in
+the source is new, publishes the release. I liked this more than the manual
+way: the exe on the Releases page is built from a commit anyone can read, not
+from my sandbox. The first release (0.6.0) built and attached itself.
+
+The feature is "Export as Website". A Cairn file is a lovely single file, but
+nobody else can read it. Now it can leave: a folder of plain HTML where each
+page keeps its layout, text keeps its styling (it reuses the copy-out writer),
+buttons become links, images become files. I made it paranoid on purpose, since
+page text is whatever anyone pasted into it: everything is escaped, only
+http/https/mailto links survive, a button aimed at a deleted page produces no
+link. I broke the escaping and the link filter deliberately and the tests
+caught both. Then I exported a real file from the running app and opened the
+pages in a browser next to the app's own picture. They match closely.
+
+One thing that picture taught me: I had clipped overflowing text to its box
+like the app does, and the last line of a paragraph vanished, because browsers
+space lines a little taller. Overflow is visible now. A web page should never
+hide words.
+
+Honest limits:
+- Exported pages are fixed-size like the originals; they do not reflow on a phone.
+- Fonts are Segoe UI/Arial in the browser, so line breaks can differ slightly.
+- Buttons that open local files or folders are dropped; Cairn-only things like
+  tags appear on the index only.
+- Wine tested the dialog and the files written; the page picture came from a
+  headless browser.
+
 ### TODO
 
 - Dark mode.
