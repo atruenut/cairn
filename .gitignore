@@ -1,0 +1,4 @@
+build/
+*.cairn
+*.o
+*.d

@@ -1,0 +1,80 @@
+# Cairn
+
+**A software experiment, made for fun.** Cairn is not a product and has no goal, market
+or roadmap beyond "what would it be like to build this?" It exists because it is enjoyable to
+make, and it will go wherever curiosity goes next. Use it, break it, fork it, ignore it.
+
+The idea: a local-first multimedia knowledge environment for Windows, inspired by IBM
+LinkWay. Pages are freeform canvases of text, images, buttons and shapes you can link
+together. Buttons can open other pages, files, folders or web links, and web addresses typed
+into text become clickable links in Run mode. Animated GIFs play. Text keeps its formatting
+(bold, italic, underline, strikethrough, code, colours, sizes, links) and pasting from a web page
+brings its styling along. Everything lives in one `.cairn` file (SQLite) and every change is
+written immediately: there is no Save step.
+
+It is written in collaboration with Claude (an AI assistant). `DEVLOG.md` is Claude's
+first-person diary of the work: what was tried, what broke, what was and was not verified.
+
+Native Win32, C++17, plain Makefile, builds with MinGW-w64 gcc. No runtime
+dependencies; one static exe (about 4 MB).
+
+## Build
+
+    build.bat       # Windows, no make needed (see below)
+    make            # build/cairn.exe  (cross: x86_64-w64-mingw32-g++ on Linux)
+    make CROSS=     # on Windows with MinGW-w64 on PATH
+    make test       # UI-free core tests, run natively (225 checks)
+
+`build.bat` needs MinGW-w64 on PATH. Easiest install:
+`winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`, then open a new
+terminal. `build.bat test` runs the core tests; `build.bat clean` removes build\.
+
+Run `cairn.exe`, or `cairn.exe path\to\file.cairn` (created if missing).
+With no argument it reopens your last file, or creates
+`Documents\Cairn\My Cairn.cairn`. Settings live in `%APPDATA%\Cairn\cairn.ini`.
+
+## Keys
+
+Ctrl+E Edit/Run mode · Ctrl+Z / Ctrl+Y undo/redo · Ctrl+Shift+T/B/R/I add text/
+button/rectangle/image · Ctrl+C/X/V copy/cut/paste (objects, images, text, files) ·
+Ctrl+P command palette · Alt+Up/Down (or drag in the list) reorder pages ·
+Ctrl+B/I/U, Ctrl+Shift+X, Ctrl+K format the selection (in a text box being edited) or the whole
+selected text object · Ctrl+Shift+V paste as plain text · drag files from Explorer onto a page · F2 edit text · Alt+Enter properties · Ctrl+D duplicate ·
+Ctrl+F find page · Alt+Left/Right history · Ctrl+wheel zoom.
+
+**Toolbar and right-click.** The toolbar has the common actions (new page, back/forward,
+move page, tags, undo/redo, clipboard, add text/button/shape/image, text formatting, zoom,
+Edit and Snap toggles); hover for tooltips. Right-click an object, empty page space, or
+a link for the matching menu (cut/copy/paste, add here, open/copy link, format, order, properties).
+
+**Function-key bar.** The strip along the bottom is F1 Help, F2 Edit Text, F3 Run/Edit, F4 Properties,
+F5 Duplicate, F6 Rename Page, F7 New Page, F8 Delete, F9 Palette, F10 Find. Click the cells or press the keys;
+View > Function Key Bar hides it.
+
+**Text size.** Ctrl+] / Ctrl+[ (or the toolbar's A buttons) make the selected text objects and buttons one step
+bigger or smaller; inside a text box being edited they resize just the selected characters.
+
+**Command palette.** Ctrl+P. Drag it by its top strip; it reopens where you left it.
+
+**Copy out.** Copying styled text puts HTML on the clipboard too, so bold, colours, sizes and links
+survive pasting into Word, mail clients and web editors.
+
+**Tags.** Give a page tags in Page Properties (comma separated; spaces become hyphens).
+They show in the page list, are searchable (`#tag` in the find box filters exactly), and the
+toolbar tag button lists every tag with a count.
+
+## Layout
+
+    src/core   UI-free: SQLite wrapper, data model, Document (undo, search, links)
+    src/win    Win32: canvas, property form, application shell
+    tests      core tests    vendor/sqlite  amalgamation    res  icon, manifest, rc
+    DEVLOG.md  the build diary (read this for the why)
+
+Safety: a button will not run .exe/.bat/script files from a document; it offers
+to show them in Explorer. Only http/https/mailto links are opened.
+
+Status: early (v0.6.0). See DEVLOG.md for what is verified and what is not.
+
+## License
+
+MIT, see `LICENSE`.
