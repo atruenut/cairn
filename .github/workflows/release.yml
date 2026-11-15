@@ -1,0 +1,52 @@
+# Builds Cairn on GitHub's servers. Every push to main builds and tests it and keeps the exe
+# as a downloadable "artifact" on the run. Pushing a tag like v0.7.0 also publishes a Release
+# with the exe (zipped) attached, so there is always something to download from the Releases page.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 zip
+
+      - name: Core tests (native)
+        run: make test
+
+      - name: Build Windows exe
+        run: make
+
+      - name: Package
+        run: |
+          ver="${GITHUB_REF_NAME}"
+          case "$ver" in v*) ;; *) ver="dev-${GITHUB_SHA::7}" ;; esac
+          mkdir -p dist/cairn
+          cp build/cairn.exe README.md DEVLOG.md LICENSE dist/cairn/
+          (cd dist && zip -qr "cairn-${ver}-windows-x64.zip" cairn)
+          echo "ZIP=dist/cairn-${ver}-windows-x64.zip" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cairn-windows-x64
+          path: ${{ env.ZIP }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ZIP" build/cairn.exe \
+            --title "Cairn ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --notes "A for-fun software experiment, not a product. Windows x64; the zip holds the single static exe. See DEVLOG.md for what was and was not tested."
