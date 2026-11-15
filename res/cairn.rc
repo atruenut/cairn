@@ -15,8 +15,8 @@ BEGIN
     BEGIN
       VALUE "ProductName", "Cairn"
       VALUE "FileDescription", "Cairn - local-first multimedia knowledge environment"
-      VALUE "FileVersion", "0.9.0.0"
-      VALUE "ProductVersion", "0.9.0.0"
+      VALUE "FileVersion", "0.10.0.0"
+      VALUE "ProductVersion", "0.10.0.0"
       VALUE "InternalName", "cairn"
       VALUE "OriginalFilename", "cairn.exe"
     END

@@ -22,6 +22,7 @@
 #include "document.h"
 #include "export.h"
 #include "propform.h"
+#include "rich.h"
 
 using namespace cairn;
 
@@ -29,7 +30,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.9.0";
+constexpr const char* kVersion = "0.10.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -1565,6 +1566,10 @@ void syncToolbar() {
   int ci = currentPageIndex();
   auto en = [&](int id, bool on) { SendMessageW(g.toolbar, TB_ENABLEBUTTON, (WPARAM)id, MAKELONG(on ? TRUE : FALSE, 0)); };
   auto chk = [&](int id, bool on) { SendMessageW(g.toolbar, TB_CHECKBUTTON, (WPARAM)id, MAKELONG(on ? TRUE : FALSE, 0)); };
+  unsigned sty = g.canvas.editStyleFlags();  // B / I / U show the style at the caret while editing
+  chk(IDM_FMT_BOLD, (sty & cairn::kBold) != 0);
+  chk(IDM_FMT_ITALIC, (sty & cairn::kItalic) != 0);
+  chk(IDM_FMT_UNDERLINE, (sty & cairn::kUnderline) != 0);
   en(IDM_PAGE_NEW, has);
   en(IDM_PAGE_TAGS, has);
   en(IDM_PAGE_BACK, g.hpos > 0);

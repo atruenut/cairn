@@ -66,6 +66,15 @@ std::string htmlFragmentFromClipboard(const std::string& clip, std::string* sour
 // resolved against sourceUrl's origin when given.
 RichText htmlToRich(const std::string& html, const std::string& sourceUrl = "");
 
+// ---- typing style --------------------------------------------------------------
+// Toggling bold/italic/... with nothing selected sets a "typing style" for the next characters.
+// styleBefore: the style flags (kBold..kMono) of the character just before `pos` (0 at the start).
+unsigned styleBefore(const Runs& runs, size_t pos);
+// If newT is oldT with text inserted exactly at `caret`, gives the inserted characters exactly the
+// style flags `flags` (replacing the five style bits, keeping colour/size) and returns true.
+// Anything else (the caret moved, text was deleted or changed elsewhere) returns false, untouched.
+bool applyTypingStyle(Runs& runs, const std::string& oldT, const std::string& newT, size_t caret, unsigned flags);
+
 // ---- text offsets --------------------------------------------------------------
 // UTF-16 units in the first `byteEnd` bytes of a UTF-8 string, as a Windows text control counts
 // them (a 4-byte character is two units). Tolerates malformed input and out-of-range offsets.

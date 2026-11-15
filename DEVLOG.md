@@ -531,6 +531,33 @@ Honest limits:
 - Ctrl+B with nothing selected still does nothing; "typing style" is still open.
 - Line breaks in the editor can differ a little from how the finished box lays out.
 
+## Entry 16: pressing Ctrl+B and having it mean something
+
+With styling visible, the obvious gap was that Ctrl+B with nothing selected did
+nothing. Every word processor lets you press it and then type. So: a "typing
+style". Toggle bold with the caret in an empty spot, and the next characters
+you type are bold; toggle it again and they are not.
+
+I kept the decision logic in the tested core: given the old text, the new text
+and where the caret was, either the change is a pure insertion exactly at the
+caret (apply the pending style to precisely those characters) or it isn't
+(do nothing). Anything else, like the caret moving, a deletion or a paste that
+replaces something, simply cancels the pending style rather than guessing. My
+mutation test found a hole there first: a replacement that also grew the text
+slipped through, so I added that case.
+
+The toolbar's B, I and U buttons now show as pressed when the text at the caret
+(or the selection, or the pending style) has that style. That small thing made
+the feature feel finished; without it you press Ctrl+B and have no idea what
+state you are in.
+
+Honest limits:
+- Only the five simple styles (bold, italic, underline, strikethrough, code).
+  Colour and size are not "typing styles" yet.
+- The pending style is spent by the next edit: if you toggle bold, then click
+  elsewhere and type, the styling is dropped rather than carried along.
+- Wine only.
+
 ### TODO
 
 - Dark mode.

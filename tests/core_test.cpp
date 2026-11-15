@@ -589,6 +589,53 @@ static void testLinkTarget() {
 }
 
 
+
+static void testTypingStyle() {
+  using namespace cairn;
+  // "ab" with "b" bold. After "b" the style is bold; at the start it is plain.
+  Runs r = decodeRuns("1,1,1,,,", 2);
+  CHECK(styleBefore(r, 0) == 0);
+  CHECK(styleBefore(r, 1) == 0);
+  CHECK(styleBefore(r, 2) == kBold);
+  CHECK(styleBefore(r, 99) == 0);
+  // Typing "X" at the end with bold turned OFF: the character is plain although the run before is bold.
+  Runs a = r;
+  std::string o = "ab", n = "abX";
+  shiftRunsForEdit(a, o, n);  // the edit tracker would extend the bold run
+  CHECK(rangeAllHave(a, 2, 3, kBold));
+  CHECK(applyTypingStyle(a, o, n, 2, 0));
+  CHECK(!rangeAllHave(a, 2, 3, kBold) && rangeAllHave(a, 1, 2, kBold));
+  // Typing "Y" in the middle with italic turned ON; others untouched, bold kept where it was.
+  Runs b = r;
+  o = "ab"; n = "aYb";
+  shiftRunsForEdit(b, o, n);
+  CHECK(applyTypingStyle(b, o, n, 1, kItalic));
+  CHECK(rangeAllHave(b, 1, 2, kItalic) && !rangeAllHave(b, 0, 1, kItalic) && !rangeAllHave(b, 2, 3, kItalic));
+  CHECK(rangeAllHave(b, 2, 3, kBold) && !rangeAllHave(b, 1, 2, kBold));
+  // Multi-character insert (a paste of two characters).
+  Runs c;
+  o = "ab"; n = "abQR";
+  CHECK(applyTypingStyle(c, o, n, 2, kBold | kUnderline));
+  CHECK(rangeAllHave(c, 2, 4, kBold) && rangeAllHave(c, 2, 4, kUnderline));
+  // Colour and size of an overlapping run survive.
+  Runs d = decodeRuns("0,2,0,255,150,", 2);
+  o = "ab"; n = "abZ";
+  shiftRunsForEdit(d, o, n);
+  CHECK(applyTypingStyle(d, o, n, 2, kBold));
+  bool kept = false;
+  for (const Run& x : d) if (x.start <= 2 && x.end() >= 3 && x.color == 255 && x.size == 150 && (x.flags & kBold)) kept = true;
+  CHECK(kept);
+  // Refusals: caret elsewhere, deletion, replacement, no change.
+  Runs e;
+  CHECK(!applyTypingStyle(e, "ab", "Xab", 2, kBold));   // inserted at 0, caret said 2
+  CHECK(!applyTypingStyle(e, "abc", "ab", 2, kBold));   // deletion
+  CHECK(!applyTypingStyle(e, "abc", "aXc", 1, kBold));  // replacement is not an insertion
+  CHECK(!applyTypingStyle(e, "abc", "aXYZ", 1, kBold)); // replaced and grew: not a pure insertion
+  CHECK(!applyTypingStyle(e, "ab", "ab", 1, kBold));
+  CHECK(!applyTypingStyle(e, "ab", "abX", 7, kBold));   // caret out of range
+  CHECK(e.empty());
+}
+
 static void testUtf16Units() {
   using namespace cairn;
   std::string s = "a\xC3\xA9\xF0\x9F\x98\x80z\nq";  // a, e-acute (2 bytes), emoji (4 bytes), z, newline, q
@@ -875,6 +922,7 @@ int main() {
   testHtmlCopy();
   testSizeSteps();
   testUtf16Units();
+  testTypingStyle();
   testExportSite();
   testReplace();
   testPageOrder();

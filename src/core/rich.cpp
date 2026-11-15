@@ -880,4 +880,22 @@ size_t utf16UnitsBefore(const std::string& s, size_t byteEnd) {
   return n;
 }
 
+unsigned styleBefore(const Runs& runs, size_t pos) {
+  if (pos == 0) return 0;
+  const unsigned all = kBold | kItalic | kUnderline | kStrike | kMono;
+  for (const Run& r : runs)
+    if (r.start < pos && pos <= r.end()) return r.flags & all;
+  return 0;
+}
+
+bool applyTypingStyle(Runs& runs, const std::string& oldT, const std::string& newT, size_t caret, unsigned flags) {
+  if (newT.size() <= oldT.size() || caret > oldT.size()) return false;
+  size_t ins = newT.size() - oldT.size();
+  if (newT.compare(0, caret, oldT, 0, caret) != 0) return false;
+  if (newT.compare(caret + ins, std::string::npos, oldT, caret, std::string::npos) != 0) return false;
+  const unsigned all = kBold | kItalic | kUnderline | kStrike | kMono;
+  restyleRange(runs, caret, caret + ins, newT.size(), [&](Run& r) { r.flags = (r.flags & ~all) | (flags & all); });
+  return true;
+}
+
 }  // namespace cairn

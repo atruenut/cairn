@@ -1131,6 +1131,7 @@ void Canvas::beginTextEdit() {
   }
   editUndo_.clear();
   editRedo_.clear();
+  pendActive_ = false;
   restoring_ = false;
   lastTyping_ = false;
   lastEditTick_ = 0;
@@ -1253,6 +1254,7 @@ void Canvas::editUndoRedo(bool redo) {
   EditSnap snap = from.back();
   from.pop_back();
   restoring_ = true;
+  pendActive_ = false;
   editSynced_ = snap.text;
   editRuns_ = decodeRuns(snap.runs, snap.text.size());
   SetWindowTextW(editWnd_, toEditText(snap.text).c_str());
@@ -1321,8 +1323,24 @@ void Canvas::applyEditStyling() {
 void Canvas::syncEditRuns() {
   if (!editWnd_ || !editIsText_) return;
   std::string now = fromEditText(editText());
+  if (now == editSynced_) return;
+  std::string before = editSynced_;
   shiftRunsForEdit(editRuns_, editSynced_, now);
+  if (pendActive_) applyTypingStyle(editRuns_, before, now, pendCaret_, pendFlags_);  // refuses if the caret moved
+  pendActive_ = false;  // the pending style is spent by the next edit, applied or not
   editSynced_ = now;
+}
+
+unsigned Canvas::editStyleFlags() {
+  if (!editWnd_ || !editRich_ || !editIsText_) return 0;
+  size_t a = 0, b = 0;
+  editSelBytes(a, b);
+  if (pendActive_ && a == b && a == pendCaret_) return pendFlags_;
+  if (a == b) return styleBefore(editRuns_, a);
+  unsigned f = 0;
+  for (unsigned bit : {(unsigned)kBold, (unsigned)kItalic, (unsigned)kUnderline, (unsigned)kStrike, (unsigned)kMono})
+    if (rangeAllHave(editRuns_, a, b, bit)) f |= bit;
+  return f;
 }
 
 bool Canvas::askFormat(int cmd, const Runs& runs, size_t a, size_t b, FormatArg& arg) {
@@ -1418,7 +1436,19 @@ void Canvas::applyFormat(int cmd) {
     syncEditRuns();
     size_t a = 0, b = 0;
     editSelBytes(a, b);
-    if (a >= b) return;  // nothing selected
+    if (a >= b) {  // nothing selected: toggle the style of the text about to be typed
+      static const unsigned flagOf[] = {0, kBold, kItalic, kUnderline, kStrike};
+      unsigned bit = cmd >= FmtBold && cmd <= FmtStrike ? flagOf[cmd] : cmd == FmtCode ? (unsigned)kMono : 0u;
+      if (!bit) return;
+      if (!pendActive_ || pendCaret_ != a) {
+        pendFlags_ = styleBefore(editRuns_, a);
+        pendCaret_ = a;
+        pendActive_ = true;
+      }
+      pendFlags_ ^= bit;
+      SetFocus(editWnd_);
+      return;
+    }
     FormatArg arg;
     inFormat_ = true;  // dialogs steal focus; that must not end the edit
     bool ok = askFormat(cmd, editRuns_, a, b, arg);

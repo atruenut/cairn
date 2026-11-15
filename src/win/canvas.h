@@ -67,6 +67,7 @@ class Canvas {
   // object and button.
   void changeTextSize(int dir);
   bool selectionHasSizable() const;
+  unsigned editStyleFlags();  // style bits in effect at the editor's caret/selection (0 if not editing)
   void recordEdit(bool typing);               // note the editor's state for its undo history
   void editUndoRedo(bool redo);
   void applyEditStyling();                    // paint editRuns_ onto the live editor
@@ -208,6 +209,10 @@ class Canvas {
   EditSnap editCur_;
   unsigned long lastEditTick_ = 0;
   bool lastTyping_ = false, restoring_ = false;
+  // "Typing style": bold/italic/... toggled with nothing selected apply to the next typed text.
+  bool pendActive_ = false;
+  size_t pendCaret_ = 0;
+  unsigned pendFlags_ = 0;
   int64_t editId_ = 0;
 };
 
