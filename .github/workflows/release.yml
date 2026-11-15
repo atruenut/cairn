@@ -1,12 +1,13 @@
-# Builds Cairn on GitHub's servers. Every push to main builds and tests it and keeps the exe
-# as a downloadable "artifact" on the run. Pushing a tag like v0.7.0 also publishes a Release
-# with the exe (zipped) attached, so there is always something to download from the Releases page.
+# Builds Cairn on GitHub's servers.
+#  - Every push to main builds and tests it and keeps the exe as a downloadable artifact on the run.
+#  - When the version in src/win/main.cpp (kVersion) has no Release yet, a Release "v<version>" is
+#    created automatically with the exe (zipped, and bare) attached. So: bump the version, push to
+#    main, and the download appears on the Releases page.
 name: build
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -29,8 +30,9 @@ jobs:
 
       - name: Package
         run: |
-          ver="${GITHUB_REF_NAME}"
-          case "$ver" in v*) ;; *) ver="dev-${GITHUB_SHA::7}" ;; esac
+          ver=$(sed -n 's/.*kVersion = "\([0-9.]*\)".*/\1/p' src/win/main.cpp | head -1)
+          test -n "$ver"
+          echo "VER=$ver" >> "$GITHUB_ENV"
           mkdir -p dist/cairn
           cp build/cairn.exe README.md DEVLOG.md LICENSE dist/cairn/
           (cd dist && zip -qr "cairn-${ver}-windows-x64.zip" cairn)
@@ -41,12 +43,15 @@ jobs:
           name: cairn-windows-x64
           path: ${{ env.ZIP }}
 
-      - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish release if this version is new
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$ZIP" build/cairn.exe \
-            --title "Cairn ${GITHUB_REF_NAME#v}" \
-            --generate-notes \
-            --notes "A for-fun software experiment, not a product. Windows x64; the zip holds the single static exe. See DEVLOG.md for what was and was not tested."
+          if gh release view "v${VER}" >/dev/null 2>&1; then
+            echo "Release v${VER} already exists; nothing to publish."
+          else
+            gh release create "v${VER}" "$ZIP" build/cairn.exe \
+              --target "$GITHUB_SHA" \
+              --title "Cairn ${VER}" \
+              --notes "A for-fun software experiment, not a product. Windows x64; the zip holds the single static exe (cairn.exe alone is attached too). Built by GitHub Actions from this commit. See DEVLOG.md for what was and was not tested (mostly Wine, so far)."
+          fi
