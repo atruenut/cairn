@@ -160,6 +160,7 @@ class Canvas {
   void clearImages();
   void drawImage(HDC dc, const Object& o, const RECT& r);
   void drawFolder(HDC dc, const Object& o, const RECT& r);
+  void drawTable(HDC dc, const Object& o, const RECT& r);
   struct FolderEntry { std::wstring name; bool dir; };
   struct FolderCache { std::wstring path; DWORD tick = 0; std::vector<FolderEntry> items; bool ok = false; };
   const FolderCache& folderItems(const Object& o);

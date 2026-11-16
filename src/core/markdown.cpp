@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "document.h"
+#include "table.h"
 
 namespace cairn {
 namespace {
@@ -227,6 +228,7 @@ void parseInl(const std::string& s, size_t i, size_t end, unsigned flags, const 
 
 // ------------------------------------------------------------------ import
 struct Block {
+  bool table = false;  // text holds the row lines of a table
   std::string text;
   Runs runs;
   int sizePt = 14;
@@ -400,7 +402,13 @@ std::vector<PendingPage> parseBlocks(const std::string& md, const std::string& f
       std::string rows;
       size_t j = li;
       for (; j < lines.size() && !trim(lines[j]).empty() && trim(lines[j])[0] == '|'; ++j) rows += trim(lines[j]) + "\n";
-      addBlock(cur, rows, true, 13, false);
+      Table tb = parseTable(rows, true);
+      if (!tb.rows.empty() && tb.cols() > 0) {
+        Block b;
+        b.table = true;
+        b.text = formatTable(tb);
+        cur.blocks.push_back(std::move(b));
+      }
       li = j - 1;
       continue;
     }
@@ -488,7 +496,8 @@ std::string exportMarkdown(const Document& doc) {
     if (!p.tags.empty()) out += "Tags: " + p.tags + "\n\n";
     std::vector<const Object*> order;
     for (const Object& o : p.objects)
-      if (o.type == ObjType::Text || o.type == ObjType::Button || o.type == ObjType::Image) order.push_back(&o);
+      if (o.type == ObjType::Text || o.type == ObjType::Button || o.type == ObjType::Image || o.type == ObjType::Table)
+        order.push_back(&o);
     std::stable_sort(order.begin(), order.end(), [](const Object* a, const Object* b) {
       return a->y != b->y ? a->y < b->y : a->x < b->x;
     });
@@ -505,6 +514,8 @@ std::string exportMarkdown(const Document& doc) {
         if (target > 0 && doc.page(target)) block = "[" + label + "](#" + slugOf(doc.page(target)->title) + ")";
         else if (!web.empty()) block = "[" + label + "](" + encodeUrl(web) + ")";
         else block = "[" + label + "]";
+      } else if (o->type == ObjType::Table) {
+        block = tableToMarkdown(parseTable(o->prop("data")), o->propInt("header", 1) != 0);
       } else {
         block = "*[image: " + escapeMd(o->prop("name", "image")) + "]*";
       }
@@ -526,10 +537,19 @@ MdImportResult importMarkdown(Document& doc, const std::string& md, const std::s
     int y = 30;
     for (const Block& b : pg.blocks) {
       if ((int)objs.size() >= kMaxObjectsPerPage) break;
-      int lines = estimateLines(b.text, kTextW, b.sizePt, 100);
-      int h = (int)(lines * b.sizePt * 4.0 / 3.0 * 1.5) + 14;
+      int lines = b.table ? (int)parseTable(b.text).rows.size() : estimateLines(b.text, kTextW, b.sizePt, 100);
+      int h = b.table ? lines * 28 + 8 : (int)(lines * b.sizePt * 4.0 / 3.0 * 1.5) + 14;
       Object o;
-      o.type = ObjType::Text;
+      o.type = b.table ? ObjType::Table : ObjType::Text;
+      if (b.table) {
+        o.x = kMargin; o.y = y; o.w = kTextW; o.h = std::min(h, 4000);
+        o.setProp("data", b.text);
+        o.setPropInt("header", 1);
+        o.setPropInt("size", 12);
+        objs.push_back(std::move(o));
+        y += h + 10;
+        continue;
+      }
       o.x = kMargin;
       o.y = y;
       o.w = kTextW;

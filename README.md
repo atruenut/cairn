@@ -70,6 +70,11 @@ right words, and the whole replace is a single undo step.
 Cairn page with objects in their places, the images, and working page-to-page buttons). No scripts; web links
 are kept, buttons that open local files are not. It never writes into an existing folder.
 
+**Tables.** Edit > Add Table. A table is a grid of plain-text cells, edited as text: one row per line, cells
+between `|` bars (a literal bar is `\|`). Double-click it to edit; the first row can be a header. Tables are
+searchable, export to the website as real HTML tables and to Markdown as GitHub-style tables, and a Markdown
+table in an imported file becomes a table object. Cells are plain text (no styling), capped at 100 rows by 20 columns.
+
 **Folder listing.** Edit > Add Folder Listing puts a live view of a folder on the page: folders first, then
 files, hidden dot-files left out. In Run mode, click an entry to open it (the same safety checks as any link
 button apply) and use the wheel over it to scroll. The path can be relative to the .cairn file, so a library
@@ -103,7 +108,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.12.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.13.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

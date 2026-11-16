@@ -8,6 +8,7 @@
 #include "rich.h"
 #include "export.h"
 #include "markdown.h"
+#include "table.h"
 #include "urls.h"
 #include "sha256.h"
 
@@ -981,6 +982,47 @@ static void testMarkdown() {
   std::remove(path.c_str());
 }
 
+static void testTables() {
+  std::printf("tables\n");
+  using namespace cairn;
+  Table a = parseTable("| Name | Qty |\n| apple | 3 |\n| pear |\n");
+  CHECK(a.rows.size() == 3 && a.cols() == 2 && a.rows[1][0] == "apple" && a.rows[2][1].empty());  // short row padded
+  Table b = parseTable("x | y\n  1 |  2  \n");  // outer bars optional, cells trimmed
+  CHECK(b.rows.size() == 2 && b.rows[0][0] == "x" && b.rows[1][1] == "2");
+  Table e = parseTable("|  | b |\n| a | |\n");  // empty cells keep their place
+  CHECK(e.cols() == 2 && e.rows[0][0].empty() && e.rows[0][1] == "b" && e.rows[1][1].empty());
+  Table esc = parseTable("| a\\|b | c\\\\d |");
+  CHECK(esc.rows.size() == 1 && esc.rows[0][0] == "a|b" && esc.rows[0][1] == "c\\d");
+  CHECK(parseTable(formatTable(esc)).rows == esc.rows);  // round trip
+  CHECK(parseTable(formatTable(e)).rows == e.rows);
+  CHECK(parseTable("").rows.empty() && parseTable("\n\n  \n").rows.empty());
+  Table md = parseTable("| h1 | h2 |\n|:---|---:|\n| a | b |\n", true);
+  CHECK(md.rows.size() == 2 && md.rows[1][1] == "b");  // separator skipped
+  CHECK(parseTable("|---|\n", false).rows.size() == 1);  // only skipped when asked
+  std::string big;
+  for (int i = 0; i < 500; ++i) { for (int j = 0; j < 60; ++j) big += "| c "; big += "|\n"; }
+  Table cap = parseTable(big);
+  CHECK(cap.rows.size() == kTableMaxRows && cap.cols() == kTableMaxCols);
+  CHECK(parseTable("| " + std::string(9000, 'z') + " |").rows[0][0].size() == kTableMaxCell);
+  CHECK(tableToMarkdown(a, true) == "| Name | Qty |\n| --- | --- |\n| apple | 3 |\n| pear |  |\n");
+  std::string h = tableToHtml(parseTable("| <b>x</b> | \"q\" & |"), true);
+  CHECK(h.find("<b>") == std::string::npos && h.find("&lt;b&gt;") != std::string::npos &&
+        h.find("<th>") != std::string::npos && h.find("&amp;") != std::string::npos);
+  CHECK(tableToHtml(a, false).find("<th>") == std::string::npos);
+
+  // Through a document: Markdown tables become table objects and survive an export.
+  std::string path = tmpPath("tbl.cairn");
+  auto doc = Document::create(path, false);
+  MdImportResult r = importMarkdown(*doc, "# T\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nafter\n", "x");
+  const Page* pg = doc->page(r.firstPage);
+  CHECK(pg && pg->objects.size() == 2 && pg->objects[0].type == ObjType::Table);
+  CHECK(pg && parseTable(pg->objects[0].prop("data")).rows.size() == 2);
+  std::string md2 = exportMarkdown(*doc);
+  CHECK(md2.find("| A | B |\n| --- | --- |\n| 1 | 2 |") != std::string::npos);
+  CHECK(!doc->search("1 | 2").empty());  // table text is searchable
+  std::remove(path.c_str());
+}
+
 int main() {
   testTags();
   testRichRuns();
@@ -993,6 +1035,7 @@ int main() {
   testExportSite();
   testReplace();
   testMarkdown();
+  testTables();
   testPageOrder();
   testUrls();
   testProps();

@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.12.0";
+constexpr const char* kVersion = "0.13.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -39,7 +39,7 @@ enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_STATUS, IDC_LINKLABEL,
 
   IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
-  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER,
+  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
   IDM_PAGE_NEW, IDM_PAGE_RENAME, IDM_PAGE_DELETE, IDM_PAGE_PROPS, IDM_PAGE_BACK, IDM_PAGE_FORWARD,
@@ -841,6 +841,7 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_EDIT_ADDBUTTON, L"Add Button", L"Ctrl+Shift+B"},
     {IDM_EDIT_ADDRECT, L"Add Rectangle", L"Ctrl+Shift+R"},
     {IDM_EDIT_ADDFOLDER, L"Add Folder Listing", L""},
+    {IDM_EDIT_ADDTABLE, L"Add Table", L""},
     {IDM_EDIT_ADDIMAGE, L"Add Image", L"Ctrl+Shift+I"},
     {IDM_PAGE_NEW, L"New Page", L"Ctrl+Shift+N"},
     {IDM_PAGE_RENAME, L"Rename Page", L""},
@@ -1094,6 +1095,7 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_EDIT_ADDBUTTON: g.canvas.addObject(ObjType::Button); break;
       case IDM_EDIT_ADDRECT: g.canvas.addObject(ObjType::Rect); break;
       case IDM_EDIT_ADDFOLDER: g.canvas.addObject(ObjType::Folder); break;
+      case IDM_EDIT_ADDTABLE: g.canvas.addObject(ObjType::Table); break;
       case IDM_EDIT_ADDIMAGE: cmdAddImage(); break;
       case IDM_EDIT_CUT: g.canvas.copySelection(true); break;
       case IDM_EDIT_COPY: g.canvas.copySelection(false); break;
@@ -1220,6 +1222,7 @@ HMENU buildMenu() {
   add(edit, IDM_EDIT_ADDBUTTON, L"Add &Button\tCtrl+Shift+B");
   add(edit, IDM_EDIT_ADDRECT, L"Add Rect&angle\tCtrl+Shift+R");
   add(edit, IDM_EDIT_ADDFOLDER, L"Add &Folder Listing");
+  add(edit, IDM_EDIT_ADDTABLE, L"Add Ta&ble");
   add(edit, IDM_EDIT_ADDIMAGE, L"Add &Image...\tCtrl+Shift+I");
   sep(edit);
   add(edit, IDM_EDIT_EDITTEXT, L"Edit Te&xt\tF2");

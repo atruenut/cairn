@@ -1,4 +1,5 @@
 #include "export.h"
+#include "table.h"
 
 #include <cstdio>
 #include <map>
@@ -53,6 +54,9 @@ const char* kStyle =
     "border-radius:3px;text-decoration:none;overflow:hidden;white-space:nowrap}"
     "a.b:hover{filter:brightness(.95)}"
     ".i{display:block}"
+    ".tb{overflow:auto}.tb table{border-collapse:collapse;width:100%}"
+    ".tb th,.tb td{border:1px solid #8a8a8a;padding:3px 6px;text-align:left;vertical-align:top}"
+    ".tb th{background:#e8ecf2}"
     ".index{max-width:720px;margin:24px auto;padding:0 12px}"
     ".index li{margin:6px 0}.tag{font-size:12px;color:#555;margin-left:8px}";
 
@@ -116,6 +120,14 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         o += "<div style=\"" + st + "\"></div>\n";
         break;
       }
+      case ObjType::Table: {
+        std::string st = pos + "font-size:" + std::to_string(ob.propInt("size", 12)) + "pt;";
+        o += "<div class=\"tb\" style=\"" + st + "\">" +
+             tableToHtml(parseTable(ob.prop("data")), ob.propInt("header", 1) != 0) + "</div>\n";
+        break;
+      }
+      case ObjType::Folder:
+        break;  // a live view of the viewer's own disk; nothing to publish
       case ObjType::Image: {
         long long blob = ob.propInt("blob", 0);
         std::string data, mime;

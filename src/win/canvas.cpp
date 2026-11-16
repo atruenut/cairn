@@ -1,4 +1,5 @@
 #include "canvas.h"
+#include "table.h"
 
 #include <richedit.h>
 
@@ -145,6 +146,7 @@ const wchar_t* typeName(ObjType t) {
     case ObjType::Rect: return L"Rectangle";
     case ObjType::Image: return L"Image";
     case ObjType::Folder: return L"Folder listing";
+    case ObjType::Table: return L"Table";
   }
   return L"Object";
 }
@@ -659,6 +661,9 @@ void Canvas::drawObject(HDC dc, const Object& o, bool pressed) {
       break;
     case ObjType::Folder:
       drawFolder(dc, o, r);
+      break;
+    case ObjType::Table:
+      drawTable(dc, o, r);
       break;
     case ObjType::Button: {
       int fill = o.propInt("fill", -1);
@@ -1566,6 +1571,11 @@ void Canvas::addObject(ObjType t, int cx, int cy) {
     o.setProp("text", "Text");
     o.setPropInt("size", 14);
     o.setPropInt("color", 0x222222);
+  } else if (t == ObjType::Table) {
+    o.w = 360; o.h = 100;
+    o.setProp("data", "| Column 1 | Column 2 | Column 3 |\n| a | b | c |\n| d | e | f |\n");
+    o.setPropInt("header", 1);
+    o.setPropInt("size", 12);
   } else if (t == ObjType::Folder) {
     o.w = 280; o.h = 220;
     o.setProp("path", ".");
@@ -1586,7 +1596,7 @@ void Canvas::addObject(ObjType t, int cx, int cy) {
   sel_ = {id};
   InvalidateRect(hwnd_, nullptr, FALSE);
   notify();
-  if (t == ObjType::Folder) editProperties();
+  if (t == ObjType::Folder || t == ObjType::Table) editProperties();
   else if (t != ObjType::Rect) beginTextEdit();
 }
 
@@ -1697,6 +1707,11 @@ void Canvas::editProperties() {
     ibold = f.addCheck(L"Bold", a.propInt("bold", 0) != 0);
     icolor = f.addColor(L"Text color", a.propInt("color", 0x000000), false);
     ifill = f.addColor(L"Fill", a.propInt("fill", -1), true);
+  } else if (a.type == ObjType::Table) {
+    itext = f.addText(L"Cells: one row per line, cells between | bars (a literal bar is \\|)",
+                      toEditText(a.prop("data")), true);
+    isize = f.addNumber(L"Font size (pt)", a.propInt("size", 12), 6, 200);
+    ibold = f.addCheck(L"First row is a header", a.propInt("header", 1) != 0);
   } else if (a.type == ObjType::Folder) {
     itext = f.addText(L"Folder (absolute, or relative to this .cairn file)", widen(a.prop("path", ".")));
     isize = f.addNumber(L"Font size (pt)", a.propInt("size", 12), 6, 200);
@@ -1726,6 +1741,9 @@ void Canvas::editProperties() {
       if (open.back() == ' ') open.pop_back(); else open.erase(open.begin());
     }
     if (open.empty()) a.props.erase("open"); else a.setProp("open", open);
+  } else if (a.type == ObjType::Table) {
+    a.setProp("data", formatTable(parseTable(fromEditText(f.text(itext)))));
+    a.setPropInt("header", f.check(ibold) ? 1 : 0);
   } else if (a.type == ObjType::Folder) {
     std::string pth = narrow(f.text(itext));
     while (!pth.empty() && pth.back() == ' ') pth.pop_back();
@@ -2032,6 +2050,56 @@ int Canvas::folderRowAt(const Object& o, int px, int py) const {
   int top = r.top + rowH + 4;  // header row
   if (px < r.left || px >= r.right || py < top || py >= r.bottom) return -1;
   return (py - top) / rowH;
+}
+
+void Canvas::drawTable(HDC dc, const Object& o, const RECT& r) {
+  Table t = parseTable(o.prop("data"));
+  bool header = o.propInt("header", 1) != 0;
+  HBRUSH white = CreateSolidBrush(RGB(255, 255, 255));
+  FillRect(dc, &r, white);
+  DeleteObject(white);
+  size_t rows = t.rows.size(), cols = t.cols();
+  if (!rows || !cols) {
+    FrameRect(dc, &r, (HBRUSH)GetStockObject(GRAY_BRUSH));
+    return;
+  }
+  int pt = o.propInt("size", 12);
+  int pad = MulDiv(4, dpi_, 96);
+  int cw = std::max(1, (int)((r.right - r.left) / cols));
+  int rh = std::max(1, (int)((r.bottom - r.top) / rows));
+  SetBkMode(dc, TRANSPARENT);
+  HPEN grid = CreatePen(PS_SOLID, 1, RGB(138, 138, 138));
+  HGDIOBJ oldPen = SelectObject(dc, grid);
+  for (size_t ri = 0; ri < rows; ++ri) {
+    int top = r.top + (int)ri * rh, bottom = ri + 1 == rows ? r.bottom : top + rh;
+    SelectObject(dc, fontFor(pt, header && ri == 0));
+    for (size_t ci = 0; ci < cols; ++ci) {
+      int left = r.left + (int)ci * cw, right = ci + 1 == cols ? r.right : left + cw;
+      RECT cell{left, top, right, bottom};
+      if (header && ri == 0) {
+        HBRUSH hb = CreateSolidBrush(RGB(232, 236, 242));
+        FillRect(dc, &cell, hb);
+        DeleteObject(hb);
+      }
+      SetTextColor(dc, RGB(30, 30, 30));
+      RECT tr{left + pad, top + 1, right - pad, bottom - 1};
+      std::wstring w = widen(cellInline(t.rows[ri][ci]));
+      DrawTextW(dc, w.c_str(), (int)w.size(), &tr, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    }
+  }
+  // grid lines
+  for (size_t ri = 0; ri <= rows; ++ri) {
+    int y = ri == rows ? r.bottom - 1 : r.top + (int)ri * rh;
+    MoveToEx(dc, r.left, y, nullptr);
+    LineTo(dc, r.right, y);
+  }
+  for (size_t ci = 0; ci <= cols; ++ci) {
+    int x = ci == cols ? r.right - 1 : r.left + (int)ci * cw;
+    MoveToEx(dc, x, r.top, nullptr);
+    LineTo(dc, x, r.bottom);
+  }
+  SelectObject(dc, oldPen);
+  DeleteObject(grid);
 }
 
 void Canvas::drawFolder(HDC dc, const Object& o, const RECT& r) {

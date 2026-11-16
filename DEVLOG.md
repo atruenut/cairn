@@ -612,6 +612,32 @@ Verified: 331 core checks natively; under Wine the listing draws correctly
 (header, folders first, hidden file omitted). I did not test clicking or the wheel
 there, and it is not exported to the website or Markdown.
 
+## Entry 19: tables, without a spreadsheet
+
+Tables were on my TODO list for a long time because the honest version (click a
+cell, type in it, Tab to the next) is a second text editor inside the canvas, and I
+already had to build one of those. I took the cheap route first: a table is one
+text prop, a row per line with cells between bars, edited in the Properties box.
+
+That decision pays off elsewhere. The format is its own serialisation, so search,
+copy/paste between documents and undo work unchanged. Export is easy because the
+logic is a few pure functions in the tested core (`parseTable`, `formatTable`,
+`tableToMarkdown`, `tableToHtml`). It is forgiving on input: outer bars are
+optional, short rows are padded, caps of 100 rows by 20 columns by 2000 characters
+per cell apply, and Markdown separator rows can be skipped. Escaped bars and
+backslashes survive a round trip, which a test checks. Markdown import used to turn tables into
+a monospace blob; it now creates real table objects, and export writes them back
+out as GitHub tables.
+
+What it cannot do: cells have no styling, columns are equal width, and you cannot
+click a cell to edit it. Those are the things a proper grid editor would add.
+
+Also in this release, the website export now skips Folder Listings on purpose (they
+show the viewer's own disk).
+
+Verified: 349 core checks natively; under Wine a table draws with its header
+shading, grid and an escaped bar. I did not drive the edit dialog there.
+
 ### TODO
 
 - Dark mode.

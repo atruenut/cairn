@@ -330,6 +330,7 @@ void Document::reindexFts(const Page& p) {
     if (o.type == ObjType::Text) body += o.prop("text") + "\n";
     else if (o.type == ObjType::Button) body += o.prop("label") + "\n";
     else if (o.type == ObjType::Image) body += o.prop("name") + "\n";
+    else if (o.type == ObjType::Table) body += o.prop("data") + "\n";
   }
   body += p.tags + "\n";  // so a plain-word search also finds pages by tag
   Stmt i(db_, "INSERT INTO fts(title,body,page_id) VALUES(?,?,?)");
@@ -799,7 +800,7 @@ std::vector<int64_t> Document::importObjects(int64_t pageId, const std::string& 
     char tag = 0;
     if (std::sscanf(line.c_str(), "%c %d %d %d %d %d %llu %llu %llu %llu", &tag, &type, &x, &y, &w,
                     &h, &pl, &bl, &ml, &nlen) != 10 ||
-        tag != 'O' || type < 1 || type > 5)
+        tag != 'O' || type < 1 || type > 6)
       return {};
     unsigned long long total = pl + bl + ml + nlen;
     if (total < pl || total > payload.size() - pos) return {};  // overflow or truncated
