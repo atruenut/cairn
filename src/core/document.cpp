@@ -1,4 +1,5 @@
 #include "document.h"
+#include "media.h"
 #include "rich.h"
 
 #include "sha256.h"
@@ -146,7 +147,7 @@ size_t Document::purgeUnusedBlobs() {
     std::set<int64_t> used;
     for (const Page& p : pages_)
       for (const Object& o : p.objects)
-        if (o.type == ObjType::Image) used.insert(o.propInt("blob", 0));
+        if (o.type == ObjType::Image || o.type == ObjType::Audio) used.insert(o.propInt("blob", 0));
     std::vector<int64_t> dead;
     {
       Stmt s(db_, "SELECT id FROM blob");
@@ -823,7 +824,7 @@ std::string Document::exportObjects(const std::vector<int64_t>& ids) const {
     const Object* o = object(id);
     if (!o) continue;
     std::string props = encodeProps(o->props), data, mime, name;
-    if (o->type == ObjType::Image) blob(o->propInt("blob", 0), data, &mime, &name);
+    if (o->type == ObjType::Image || o->type == ObjType::Audio) blob(o->propInt("blob", 0), data, &mime, &name);
     out += "O " + std::to_string((int)o->type) + " " + std::to_string(o->x) + " " +
            std::to_string(o->y) + " " + std::to_string(o->w) + " " + std::to_string(o->h) + " " +
            std::to_string(props.size()) + " " + std::to_string(data.size()) + " " +
@@ -855,7 +856,7 @@ std::vector<int64_t> Document::importObjects(int64_t pageId, const std::string& 
     char tag = 0;
     if (std::sscanf(line.c_str(), "%c %d %d %d %d %d %llu %llu %llu %llu", &tag, &type, &x, &y, &w,
                     &h, &pl, &bl, &ml, &nlen) != 10 ||
-        tag != 'O' || type < 1 || type > 6)
+        tag != 'O' || type < 1 || type > 7)
       return {};
     unsigned long long total = pl + bl + ml + nlen;
     if (total < pl || total > payload.size() - pos) return {};  // overflow or truncated
@@ -879,6 +880,11 @@ std::vector<int64_t> Document::importObjects(int64_t pageId, const std::string& 
     if (r.o.type == ObjType::Image) {
       if (r.data.empty()) continue;  // an image with no bytes is unusable
       r.o.setPropInt("blob", (long)addBlob(r.data, r.mime, r.name));
+    } else if (r.o.type == ObjType::Audio) {
+      AudioKind ak;
+      if (!sniffAudio(r.data, ak)) continue;  // pasted bytes that are not audio are dropped, never stored
+      r.o.setProp("ext", ak.ext);
+      r.o.setPropInt("blob", (long)addBlob(r.data, ak.mime, r.name));
     }
     r.o.x += dx;
     r.o.y += dy;

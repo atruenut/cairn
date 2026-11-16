@@ -78,6 +78,12 @@ it this way. The brackets stay in the text. Renaming a page rewrites `[[links]]`
 export turns them into real links between pages; Markdown export keeps them as `[[Title]]`, which other
 note tools understand.
 
+**Audio.** Edit > Add Audio (or drop a file on the page) embeds a WAV, MP3, M4A, WMA or MIDI clip in the file.
+In Run mode, click it to play and click again to stop; only one plays at a time. Properties has Loop and "Play
+when the page opens". Playback goes through Windows' own media codecs, so a format your Windows can't decode
+will say so instead of playing. Files are recognised by their contents, not their name, and clips are written
+to a temporary folder only while in use (removed on exit). The website export includes a player.
+
 **Tables.** Edit > Add Table. A table is a grid of plain-text cells. In Edit mode, double-click a cell to type in
 it: Enter finishes, Esc cancels, Tab moves to the next cell (Shift+Tab the previous), and Tab in the last cell adds
 a row. Right-click a cell for Table > insert or delete a row or column. F2 / Properties edit the whole table as
@@ -119,7 +125,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.17.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.18.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

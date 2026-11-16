@@ -1,5 +1,7 @@
 #include "canvas.h"
 #include "table.h"
+#include "media.h"
+#include <mmsystem.h>
 
 #include <richedit.h>
 
@@ -175,6 +177,7 @@ const wchar_t* typeName(ObjType t) {
     case ObjType::Image: return L"Image";
     case ObjType::Folder: return L"Folder listing";
     case ObjType::Table: return L"Table";
+    case ObjType::Audio: return L"Audio";
   }
   return L"Object";
 }
@@ -412,6 +415,11 @@ HWND Canvas::create(HWND parent, int id, HINSTANCE hi) {
 }
 
 Canvas::~Canvas() {
+  audioStop();
+  if (!audioDir_.empty()) {  // the temporary copies of embedded clips
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::path(audioDir_), ec);
+  }
   clearFonts();
   clearImages();
 }
@@ -447,13 +455,18 @@ void Canvas::setPage(int64_t id) {
   bool same = (id == pageId_);
   pageId_ = id;
   sel_.clear();
-  if (!same) scrollX_ = scrollY_ = 0;
+  if (!same) {
+    scrollX_ = scrollY_ = 0;
+    audioStop();  // sound belongs to the page it was started on
+    audioAutoplay();
+  }
   updateScroll();
   InvalidateRect(hwnd_, nullptr, FALSE);
   notify();
 }
 
 void Canvas::docChanged() {
+  if (audioObj_ && !(doc_ && doc_->object(audioObj_))) audioStop();  // the playing object was deleted
   if (editWnd_ && !(doc_ && doc_->object(editId_))) endEdit(false, false);
   pruneSelection();
   updateScroll();
@@ -704,6 +717,9 @@ void Canvas::drawObject(HDC dc, const Object& o, bool pressed) {
       break;
     case ObjType::Table:
       drawTable(dc, o, r);
+      break;
+    case ObjType::Audio:
+      drawAudio(dc, o, r);
       break;
     case ObjType::Button: {
       int fill = o.propInt("fill", -1);
@@ -960,6 +976,13 @@ void Canvas::onLButtonDown(int x, int y, WPARAM keys) {
     if (o && o->type == ObjType::Text) {
       std::wstring u = urlAt(*o, x, y);  // copy before the callback: it may reload the page
       if (!u.empty() && onOpenLink) onOpenLink(u);
+      return;
+    }
+    if (o && o->type == ObjType::Audio) {
+      if (audioObj_ == o->id) audioStop();
+      else if (!audioStart(*o))
+        MessageBoxW(GetParent(hwnd_), L"This clip can't be played on this computer.", L"Cairn", MB_OK | MB_ICONINFORMATION);
+      InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
     if (o && o->type == ObjType::Folder) {
@@ -1865,6 +1888,10 @@ void Canvas::editProperties() {
     ibold = f.addCheck(L"Bold", a.propInt("bold", 0) != 0);
     icolor = f.addColor(L"Text color", a.propInt("color", 0x000000), false);
     ifill = f.addColor(L"Fill", a.propInt("fill", -1), true);
+  } else if (a.type == ObjType::Audio) {
+    itext = f.addText(L"Name", widen(a.prop("name")));
+    ifit = f.addCheck(L"Loop", a.propInt("loop", 0) != 0);
+    irestore = f.addCheck(L"Play when the page opens (Run mode)", a.propInt("auto", 0) != 0);
   } else if (a.type == ObjType::Table) {
     itext = f.addText(L"Cells: one row per line, cells between | bars (a literal bar is \\|)",
                       toEditText(a.prop("data")), true);
@@ -1899,6 +1926,10 @@ void Canvas::editProperties() {
       if (open.back() == ' ') open.pop_back(); else open.erase(open.begin());
     }
     if (open.empty()) a.props.erase("open"); else a.setProp("open", open);
+  } else if (a.type == ObjType::Audio) {
+    a.setProp("name", narrow(f.text(itext)));
+    a.setPropInt("loop", f.check(ifit) ? 1 : 0);
+    a.setPropInt("auto", f.check(irestore) ? 1 : 0);
   } else if (a.type == ObjType::Table) {
     a.setProp("data", formatTable(parseTable(fromEditText(f.text(itext)))));
     a.setPropInt("header", f.check(ibold) ? 1 : 0);
@@ -2078,7 +2109,7 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
           else if (h == 3 || h == 7) cur = IDC_SIZEWE;
           else if (objectAt(pt.x, pt.y)) cur = IDC_SIZEALL;
         } else if (const Object* o = objectAt(pt.x, pt.y)) {
-          if (o->type == ObjType::Button || (o->type == ObjType::Text && !urlAt(*o, pt.x, pt.y).empty()) ||
+          if (o->type == ObjType::Button || o->type == ObjType::Audio || (o->type == ObjType::Text && !urlAt(*o, pt.x, pt.y).empty()) ||
               (o->type == ObjType::Folder && folderRowAt(*o, pt.x, pt.y) >= 0))
             cur = IDC_HAND;
         }
@@ -2119,6 +2150,9 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
       return 0;
     case WM_EDIT_CELLNAV:
       cellNavigate((int)w);
+      return 0;
+    case MM_MCINOTIFY:
+      audioNotify(w);
       return 0;
   }
   return DefWindowProcW(hwnd_, m, w, l);
@@ -2420,6 +2454,16 @@ int64_t Canvas::addTextObject(const std::string& utf8, int px, int py, const std
   return doc_->addObject(pageId_, o, "Add Text");
 }
 
+namespace {
+bool isAudioExtension(const std::wstring& p) {
+  size_t dot = p.find_last_of(L'.');
+  if (dot == std::wstring::npos) return false;
+  std::wstring e = p.substr(dot + 1);
+  for (wchar_t& c : e) c = (wchar_t)std::towlower(c);
+  return e == L"wav" || e == L"mp3" || e == L"m4a" || e == L"wma" || e == L"mid" || e == L"midi";
+}
+}  // namespace
+
 bool Canvas::addImageBytes(const std::string& bytes, const std::string& name, int px, int py) {
   if (!curPage() || !doc_) return false;
   Decoded d;
@@ -2479,6 +2523,14 @@ void Canvas::addFilesAt(const std::vector<std::wstring>& files, int px, int py) 
       }
       continue;
     }
+    if (!isDir && isAudioExtension(f)) {
+      if (readWholeFile(f, bytes, 128u * 1024 * 1024) && addAudioBytes(bytes, narrow(fileNameOf(f)), ox, oy)) {
+        made.push_back(sel_[0]);
+      } else {
+        failed += L"\n" + fileNameOf(f);
+      }
+      continue;
+    }
     if (!isDir && isTextExtension(f) && readWholeFile(f, bytes, 512 * 1024)) {
       made.push_back(addTextObject(textFromBytes(bytes), ox, oy));
       continue;
@@ -2498,8 +2550,139 @@ void Canvas::addFilesAt(const std::vector<std::wstring>& files, int px, int py) 
   InvalidateRect(hwnd_, nullptr, FALSE);
   notify();
   if (!failed.empty())
-    MessageBoxW(GetParent(hwnd_), (L"These images couldn't be read, so they were skipped:" + failed).c_str(),
+    MessageBoxW(GetParent(hwnd_), (L"These files couldn't be read, so they were skipped:" + failed).c_str(),
                 L"Cairn", MB_OK | MB_ICONINFORMATION);
+}
+
+// ---------------------------------------------------------------- audio
+// Clips live in the file as blobs. To play one it is written to a per-run temp folder and opened through
+// MCI, which uses whatever codecs Windows has for that file type. One clip plays at a time.
+
+namespace {
+const wchar_t* kAlias = L"cairnaudio";
+}
+
+bool Canvas::audioStart(const Object& o) {
+  if (!doc_) return false;
+  std::string data;
+  AudioKind ak;
+  if (!doc_->blob(o.propInt("blob", 0), data) || !sniffAudio(data, ak)) return false;
+  audioStop();
+  if (audioDir_.empty()) {
+    wchar_t tmp[MAX_PATH + 2];
+    DWORD n = GetTempPathW(MAX_PATH, tmp);
+    if (!n || n > MAX_PATH) return false;
+    audioDir_ = std::wstring(tmp, n) + L"cairn-audio-" + std::to_wstring(GetCurrentProcessId());
+    CreateDirectoryW(audioDir_.c_str(), nullptr);
+  }
+  std::wstring path = audioDir_ + L"\\b" + std::to_wstring(o.propInt("blob", 0)) + L"." + widen(ak.ext);
+  if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    DWORD wrote = 0;
+    BOOL ok = WriteFile(f, data.data(), (DWORD)data.size(), &wrote, nullptr);
+    CloseHandle(f);
+    if (!ok || wrote != data.size()) {
+      DeleteFileW(path.c_str());
+      return false;
+    }
+  }
+  std::wstring open = L"open \"" + path + L"\" alias " + kAlias;
+  if (mciSendStringW(open.c_str(), nullptr, 0, nullptr) != 0) return false;
+  std::wstring play = std::wstring(L"play ") + kAlias + L" notify";
+  if (mciSendStringW(play.c_str(), nullptr, 0, hwnd_) != 0) {
+    mciSendStringW((std::wstring(L"close ") + kAlias).c_str(), nullptr, 0, nullptr);
+    return false;
+  }
+  audioObj_ = o.id;
+  audioLoop_ = o.propInt("loop", 0) != 0;
+  audioTick_ = GetTickCount();
+  return true;
+}
+
+void Canvas::audioStop() {
+  if (!audioObj_) return;
+  audioObj_ = 0;  // first: the "aborted" notification this causes must find nothing to do
+  mciSendStringW((std::wstring(L"stop ") + kAlias).c_str(), nullptr, 0, nullptr);
+  mciSendStringW((std::wstring(L"close ") + kAlias).c_str(), nullptr, 0, nullptr);
+  if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void Canvas::audioNotify(WPARAM w) {
+  if (!audioObj_) return;
+  if (w == MCI_NOTIFY_SUCCESSFUL && audioLoop_ && GetTickCount() - audioTick_ > 300) {
+    audioTick_ = GetTickCount();
+    mciSendStringW((std::wstring(L"seek ") + kAlias + L" to start").c_str(), nullptr, 0, nullptr);
+    if (mciSendStringW((std::wstring(L"play ") + kAlias + L" notify").c_str(), nullptr, 0, hwnd_) == 0) return;
+  }
+  if (w == MCI_NOTIFY_SUPERSEDED) return;
+  audioStop();  // finished, failed, or aborted
+}
+
+void Canvas::audioAutoplay() {
+  if (edit_ || !doc_) return;
+  const Page* p = curPage();
+  if (!p) return;
+  for (const Object& o : p->objects)
+    if (o.type == ObjType::Audio && o.propInt("auto", 0)) {
+      audioStart(o);  // a clip that cannot play is just silent here; clicking it explains
+      return;
+    }
+}
+
+void Canvas::drawAudio(HDC dc, const Object& o, const RECT& r) {
+  bool playing = audioObj_ == o.id;
+  HBRUSH bg = CreateSolidBrush(playing ? RGB(226, 238, 255) : RGB(240, 242, 246));
+  FillRect(dc, &r, bg);
+  DeleteObject(bg);
+  FrameRect(dc, &r, (HBRUSH)GetStockObject(GRAY_BRUSH));
+  int h = r.bottom - r.top, pad = MulDiv(8, dpi_, 96);
+  int d = std::max(12, h - 2 * pad);
+  RECT ic{r.left + pad, r.top + (h - d) / 2, r.left + pad + d, r.top + (h - d) / 2 + d};
+  HBRUSH accent = CreateSolidBrush(RGB(0x2F, 0x6F, 0xDE));
+  HGDIOBJ ob = SelectObject(dc, accent), op = SelectObject(dc, GetStockObject(NULL_PEN));
+  Ellipse(dc, ic.left, ic.top, ic.right, ic.bottom);
+  HBRUSH white = CreateSolidBrush(RGB(255, 255, 255));
+  SelectObject(dc, white);
+  int cx = (ic.left + ic.right) / 2, cy = (ic.top + ic.bottom) / 2, q = d / 4;
+  if (playing) {
+    Rectangle(dc, cx - q, cy - q, cx + q + 1, cy + q + 1);  // stop square
+  } else {
+    POINT tri[3] = {{cx - q / 2, cy - q}, {cx - q / 2, cy + q}, {cx + q, cy}};
+    Polygon(dc, tri, 3);  // play triangle
+  }
+  SelectObject(dc, op);
+  SelectObject(dc, ob);
+  DeleteObject(accent);
+  DeleteObject(white);
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, RGB(30, 30, 30));
+  HGDIOBJ of = SelectObject(dc, fontFor(13, false));
+  std::wstring label = widen(o.prop("name", "audio"));
+  if (o.propInt("loop", 0)) label += L"  (loop)";
+  RECT tr{ic.right + pad, r.top, r.right - pad, r.bottom};
+  DrawTextW(dc, label.c_str(), (int)label.size(), &tr, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  SelectObject(dc, of);
+}
+
+bool Canvas::addAudioBytes(const std::string& bytes, const std::string& name, int px, int py) {
+  AudioKind ak;
+  if (!curPage() || !doc_ || !sniffAudio(bytes, ak)) return false;
+  if (!edit_) setEditMode(true);
+  endEdit(true, false);
+  Object o;
+  o.type = ObjType::Audio;
+  o.w = 280;
+  o.h = 48;
+  placeNew(o.w, o.h, px, py, o.x, o.y);
+  o.setProp("name", name);
+  o.setProp("ext", ak.ext);
+  o.setPropInt("blob", (long)doc_->addBlob(bytes, ak.mime, name));
+  int64_t id = doc_->addObject(pageId_, o, "Add Audio");
+  sel_ = {id};
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  notify();
+  return true;
 }
 
 // --------------------------------------------------------------- clipboard

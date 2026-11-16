@@ -165,6 +165,16 @@ class Canvas {
   void drawImage(HDC dc, const Object& o, const RECT& r);
   void drawFolder(HDC dc, const Object& o, const RECT& r);
   void drawTable(HDC dc, const Object& o, const RECT& r);
+  void drawAudio(HDC dc, const Object& o, const RECT& r);
+  bool audioStart(const Object& o);   // writes the clip to a temp file and plays it; false if it cannot
+  void audioStop();
+  void audioNotify(WPARAM w);         // MM_MCINOTIFY: the clip finished (loop it) or was stopped
+  void audioAutoplay();               // Run mode: start the first "play when the page opens" clip
+  bool addAudioBytes(const std::string& bytes, const std::string& name, int px, int py);
+  int64_t audioObj_ = 0;
+  bool audioLoop_ = false;
+  DWORD audioTick_ = 0;  // when the current pass started: a clip that "ends" at once must not loop forever
+  std::wstring audioDir_;
   std::string withWikiRuns(const Object& o) const;
   struct FolderEntry { std::wstring name; bool dir; };
   struct FolderCache { std::wstring path; DWORD tick = 0; std::vector<FolderEntry> items; bool ok = false; };

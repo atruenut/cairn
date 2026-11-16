@@ -753,6 +753,36 @@ to the end to append a row, and inserted a column from the right-click menu; the
 saved file shows each change. I did not check undo of these by hand, but each is
 one `updateObject` call like every other edit.
 
+## Entry 24: sound
+
+LinkWay pages could talk; mine were silent. Audio is a new object type holding a clip
+as a blob inside the .cairn, so a document stays one file and travels with its sounds.
+
+The core part is small and tested: `sniffAudio` identifies WAV, MP3, M4A, WMA and MIDI
+from their first bytes, and refuses everything else, including a video MP4 or an .exe
+renamed .mp3. The same check guards pasting objects between files, so a crafted
+clipboard cannot smuggle non-audio bytes in as a "clip".
+
+Playback is MCI (winmm): the clip is written to a per-run temp folder and opened
+by path, since MCI cannot play from memory. It plays through Windows' own codecs,
+one clip at a time, with a finished/stopped notification back to the canvas for loop
+and for resetting the button. Autoplay starts when you enter a page in Run mode and
+sound stops when you leave it.
+
+The important bug was not in the audio at all. The "delete blobs nothing references"
+sweep on open, and the copy/paste and export paths, only knew about images, so an audio
+clip would have been silently deleted the next time the file was opened. I found it by
+reading every place that mentions `ObjType::Image` before writing the UI, and wrote the
+reopen test first; disabling the sweep fix makes the suite crash, as it should.
+
+One more guard: a looping clip that "ends" in under 300 ms is not restarted, so a
+broken or zero-length clip cannot spin the app in a loop.
+
+Verified: 423 core checks; under Wine the object draws, a click extracts a byte-identical
+temp copy and opens it, and looping does not spin the CPU. Wine has no sound device, so I
+have not heard anything play. That needs a real Windows machine, and that is the first
+thing to try when you test this release.
+
 ### TODO
 
 - Dark mode.

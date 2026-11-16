@@ -30,7 +30,7 @@ if not exist build mkdir build
 
 set SQLFLAGS=-O2 -DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_FTS5 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_DEPRECATED -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_DQS=0
 set INCS=-Isrc/core -Isrc/win -Ivendor/sqlite
-set CORE=src\core\document.cpp src\core\model.cpp src\core\rich.cpp src\core\export.cpp src\core\markdown.cpp src\core\table.cpp
+set CORE=src\core\document.cpp src\core\model.cpp src\core\rich.cpp src\core\export.cpp src\core\markdown.cpp src\core\table.cpp src\core\media.cpp
 
 rem SQLite is large; compile it once and reuse the object file.
 if not exist build\sqlite3.o (
@@ -55,7 +55,7 @@ windres -O coff -Ires res\cairn.rc -o build\cairn_res.o
 if errorlevel 1 goto :fail
 
 echo [3/3] Compiling and linking Cairn...
-g++ -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter %INCS% -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 %CORE% src\win\main.cpp src\win\canvas.cpp src\win\propform.cpp src\win\images.cpp build\sqlite3.o build\cairn_res.o -o build\cairn.exe -static -mwindows -municode -lcomctl32 -lcomdlg32 -lshell32 -lgdi32 -luser32 -lole32 -lwindowscodecs -luuid -lmsimg32
+g++ -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter %INCS% -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 %CORE% src\win\main.cpp src\win\canvas.cpp src\win\propform.cpp src\win\images.cpp build\sqlite3.o build\cairn_res.o -o build\cairn.exe -static -mwindows -municode -lcomctl32 -lcomdlg32 -lshell32 -lgdi32 -luser32 -lole32 -lwindowscodecs -luuid -lmsimg32 -lwinmm
 if errorlevel 1 goto :fail
 
 if not exist build\cairn.exe goto :fail

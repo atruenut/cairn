@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.17.0";
+constexpr const char* kVersion = "0.18.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -39,7 +39,7 @@ enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_STATUS, IDC_LINKLABEL,
 
   IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
-  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
+  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
   IDM_PAGE_NEW, IDM_PAGE_RENAME, IDM_PAGE_DELETE, IDM_PAGE_PROPS, IDM_PAGE_BACK, IDM_PAGE_FORWARD,
@@ -710,6 +710,20 @@ void cmdAddImage(int px = -1, int py = -1) {
   g.canvas.addFilesAt(files, px, py);
 }
 
+void cmdAddAudio() {
+  if (!g.doc) return;
+  wchar_t buf[1024] = {};
+  OPENFILENAMEW ofn{};
+  ofn.lStructSize = sizeof ofn;
+  ofn.hwndOwner = g.hwnd;
+  ofn.lpstrFilter = L"Audio (*.wav;*.mp3;*.m4a;*.wma;*.mid)\0*.wav;*.mp3;*.m4a;*.wma;*.mid;*.midi\0All files (*.*)\0*.*\0";
+  ofn.lpstrFile = buf;
+  ofn.nMaxFile = 1023;
+  ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+  if (!GetOpenFileNameW(&ofn)) return;
+  g.canvas.addFilesAt({std::wstring(buf)}, -1, -1);
+}
+
 // ------------------------------------------------------------ function-key bar
 // The F1-F10 strip file managers have along the bottom: each cell is also a button.
 
@@ -857,6 +871,7 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_EDIT_ADDRECT, L"Add Rectangle", L"Ctrl+Shift+R"},
     {IDM_EDIT_ADDFOLDER, L"Add Folder Listing", L""},
     {IDM_EDIT_ADDTABLE, L"Add Table", L""},
+    {IDM_EDIT_ADDAUDIO, L"Add Audio...", L""},
     {IDM_EDIT_ADDIMAGE, L"Add Image", L"Ctrl+Shift+I"},
     {IDM_PAGE_NEW, L"New Page", L"Ctrl+Shift+N"},
     {IDM_PAGE_RENAME, L"Rename Page", L""},
@@ -1111,6 +1126,7 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_EDIT_ADDRECT: g.canvas.addObject(ObjType::Rect); break;
       case IDM_EDIT_ADDFOLDER: g.canvas.addObject(ObjType::Folder); break;
       case IDM_EDIT_ADDTABLE: g.canvas.addObject(ObjType::Table); break;
+      case IDM_EDIT_ADDAUDIO: cmdAddAudio(); break;
       case IDM_TBL_ROW_ABOVE: g.canvas.tableOp(0); break;
       case IDM_TBL_ROW_BELOW: g.canvas.tableOp(1); break;
       case IDM_TBL_ROW_DEL: g.canvas.tableOp(2); break;
@@ -1244,6 +1260,7 @@ HMENU buildMenu() {
   add(edit, IDM_EDIT_ADDRECT, L"Add Rect&angle\tCtrl+Shift+R");
   add(edit, IDM_EDIT_ADDFOLDER, L"Add &Folder Listing");
   add(edit, IDM_EDIT_ADDTABLE, L"Add Ta&ble");
+  add(edit, IDM_EDIT_ADDAUDIO, L"Add Au&dio...");
   add(edit, IDM_EDIT_ADDIMAGE, L"Add &Image...\tCtrl+Shift+I");
   sep(edit);
   add(edit, IDM_EDIT_EDITTEXT, L"Edit Te&xt\tF2");

@@ -9,6 +9,7 @@
 #include "export.h"
 #include "markdown.h"
 #include "table.h"
+#include "media.h"
 #include "urls.h"
 #include "sha256.h"
 
@@ -1154,6 +1155,71 @@ static void testWikiLinks() {
   std::remove(path.c_str());
 }
 
+static void testAudioSniff() {
+  std::printf("audio sniff\n");
+  using namespace cairn;
+  AudioKind k;
+  std::string wav = std::string("RIFF\x24\x00\x00\x00WAVEfmt ", 16);
+  CHECK(sniffAudio(wav, k) && k.ext == "wav" && k.mime == "audio/wav");
+  CHECK(sniffAudio(std::string("ID3\x03\x00\x00\x00\x00\x00\x00\x00\x00", 12), k) && k.ext == "mp3");
+  CHECK(sniffAudio(std::string("\xFF\xFB\x90\x00\x00\x00\x00\x00\x00\x00\x00\x00", 12), k) && k.ext == "mp3");  // bare frame
+  CHECK(sniffAudio(std::string("\x00\x00\x00\x20" "ftypM4A \x00\x00\x00\x00", 16), k) && k.ext == "m4a");
+  CHECK(!sniffAudio(std::string("\x00\x00\x00\x20" "ftypisom\x00\x00\x00\x00", 16), k));  // video mp4 is not audio
+  CHECK(sniffAudio(std::string("MThd\x00\x00\x00\x06\x00\x01\x00\x01", 12), k) && k.ext == "mid");
+  CHECK(sniffAudio(std::string("\x30\x26\xB2\x75\x8E\x66\xCF\x11\xA6\xD9\x00\xAA", 12), k) && k.ext == "wma");
+  CHECK(!sniffAudio("MZ\x90\x00 this is an exe renamed .mp3", k));
+  CHECK(!sniffAudio("", k) && !sniffAudio("RIFF", k));
+  CHECK(!sniffAudio(std::string("RIFF\x24\x00\x00\x00" "AVI LIST", 16), k));  // RIFF but not WAVE
+  CHECK(!sniffAudio(std::string("\xFF\xE1\x90\x00\x00\x00\x00\x00\x00\x00\x00\x00", 12), k));  // reserved MPEG version... layer 0
+  CHECK(!sniffAudio(std::string("\xFF\xFB\xF0\x00\x00\x00\x00\x00\x00\x00\x00\x00", 12), k));  // bitrate index 15 is invalid
+  CHECK(!sniffAudio(std::string("\xFF\xFB\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", 12), k));  // free bitrate: not accepted
+  std::string path = tmpPath("aud.cairn");
+  auto doc = Document::create(path, false);
+  int64_t pg = doc->addPage("A");
+  Object o;
+  o.type = ObjType::Audio;
+  o.w = 240; o.h = 48;
+  o.setProp("name", "clip.wav");
+  CHECK(doc->addObject(pg, o) > 0);
+  auto b = Document::create(tmpPath("aud2.cairn"), false);
+  int64_t pb = b->addPage("B");
+  auto ids = b->importObjects(pb, doc->exportObjects({doc->page(pg)->objects[0].id}), 0, 0);
+  CHECK(ids.empty());  // an audio object with no audio bytes is unusable, so a paste drops it
+  // The clip itself: stored, kept across a reopen (blob sweep), copied between files, exported as a player.
+  std::string wavBytes = std::string("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00", 20) + std::string(40, '\x01');
+  int64_t bid = doc->addBlob(wavBytes, "audio/wav", "clip.wav");
+  Object ao;
+  ao.type = ObjType::Audio;
+  ao.w = 240; ao.h = 48;
+  ao.setPropInt("blob", (long)bid);
+  ao.setProp("name", "clip.wav");
+  int64_t aid = doc->addObject(pg, ao);
+  doc.reset();
+  doc = Document::open(path);
+  std::string back;
+  CHECK(doc->blob(bid, back) && back == wavBytes);  // not swept as unreferenced
+  auto ids2 = b->importObjects(pb, doc->exportObjects({aid}), 0, 0);
+  CHECK(ids2.size() == 1);
+  std::string got;
+  CHECK(b->blob((int64_t)b->object(ids2[0])->propInt("blob", 0), got) && got == wavBytes);
+  bool player = false;
+  for (const ExportFile& f : exportSite(*doc, "t"))
+    if (f.data.find("<audio controls") != std::string::npos) player = true;
+  CHECK(player);
+  bool audioFile = false;
+  for (const ExportFile& f : exportSite(*doc, "t"))
+    if (f.path == "audio/b" + std::to_string(bid) + ".wav" && f.data == wavBytes) audioFile = true;
+  CHECK(audioFile);
+  // A hostile paste: an "audio" object whose bytes are not audio is dropped.
+  std::string evil = b->exportObjects({ids2[0]});
+  size_t at = evil.find(wavBytes);
+  CHECK(at != std::string::npos);
+  evil.replace(at, 12, std::string(12, 'M'));  // break the RIFF/WAVE header, same length
+  CHECK(b->importObjects(pb, evil, 0, 0).empty());
+  std::remove(path.c_str());
+  std::remove(tmpPath("aud2.cairn").c_str());
+}
+
 int main() {
   testTags();
   testRichRuns();
@@ -1168,6 +1234,7 @@ int main() {
   testMarkdown();
   testTables();
   testWikiLinks();
+  testAudioSniff();
   testPageOrder();
   testUrls();
   testProps();

@@ -1,5 +1,6 @@
 #include "export.h"
 #include "table.h"
+#include "media.h"
 
 #include <cstdio>
 #include <map>
@@ -54,6 +55,7 @@ const char* kStyle =
     "border-radius:3px;text-decoration:none;overflow:hidden;white-space:nowrap}"
     "a.b:hover{filter:brightness(.95)}"
     ".i{display:block}"
+    ".au audio{width:100%;height:100%}"
     ".tb{overflow:auto}.tb table{border-collapse:collapse;width:100%}"
     ".tb th,.tb td{border:1px solid #8a8a8a;padding:3px 6px;text-align:left;vertical-align:top}"
     ".tb th{background:#e8ecf2}"
@@ -124,6 +126,20 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         std::string st = pos + "font-size:" + std::to_string(ob.propInt("size", 12)) + "pt;";
         o += "<div class=\"tb\" style=\"" + st + "\">" +
              tableToHtml(parseTable(ob.prop("data")), ob.propInt("header", 1) != 0) + "</div>\n";
+        break;
+      }
+      case ObjType::Audio: {
+        long long blob = ob.propInt("blob", 0);
+        std::string data;
+        AudioKind ak;
+        if (blob > 0 && doc.blob(blob, data) && sniffAudio(data, ak)) {
+          std::string file = "audio/b" + std::to_string(blob) + "." + ak.ext;
+          imageFiles[blob] = file;
+          o += "<div class=\"au\" style=\"" + pos + "\"><audio controls preload=\"none\" src=\"" + file + "\"></audio></div>\n";
+        } else {
+          o += "<div style=\"" + pos + "border:1px dashed #999;color:#777;font-size:12px;padding:4px\">" +
+               esc(ob.prop("name", "audio")) + "</div>\n";
+        }
         break;
       }
       case ObjType::Folder:
