@@ -588,6 +588,30 @@ and my first link parser stopped at the first `)`, which cut
 Verified: 330 core checks natively. The menu commands compile but I have not driven
 the file dialogs under Wine, so the UI side of this is untested.
 
+## Entry 18: a window onto a folder
+
+LinkWay's pages could point at files; mine could only point at one file at a
+time with a button. A Folder Listing object shows what is actually in a folder
+and stays current, so a page can be the front door to a directory of papers or
+photos without me maintaining a button per file.
+
+It is a new object type (5) with a `path` and a font size. Relative paths resolve
+against the .cairn file's folder, the same rule buttons use. It reads at most every
+two seconds, caps at 2000 entries, sorts folders first then by name, and hides
+dot-files. In Run mode a click opens the entry through the existing `openLink`, so
+the refusal of odd URL schemes and the other safety checks apply unchanged; the
+wheel scrolls the list when the pointer is over it.
+
+Mistakes: the transfer importer (copy/paste between documents) rejected object
+types above 4, so a pasted listing would have been silently dropped. Caught it
+by writing the paste test first, and now it is in the suite. My first draft also
+used a small triangle glyph for folders that rendered as an empty box in the font
+I use; folders now just end in a backslash.
+
+Verified: 331 core checks natively; under Wine the listing draws correctly
+(header, folders first, hidden file omitted). I did not test clicking or the wheel
+there, and it is not exported to the website or Markdown.
+
 ### TODO
 
 - Dark mode.

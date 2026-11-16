@@ -345,6 +345,14 @@ static void testTransfer() {
   CHECK(b->page(pageB)->objects.empty());  // one undo removes the whole paste
   b->redo();
   CHECK(b->page(pageB)->objects.size() == 2);
+  Object fo;
+  fo.type = ObjType::Folder;
+  fo.w = 200; fo.h = 100;
+  fo.setProp("path", "docs\\sub");
+  int64_t fid = a->addObject(pageA, fo);
+  auto fids = b->importObjects(pageB, a->exportObjects({fid}), 0, 0);
+  CHECK(fids.size() == 1 && b->object(fids[0]) && b->object(fids[0])->type == ObjType::Folder &&
+        b->object(fids[0])->prop("path") == "docs\\sub");
 
   // Hostile / damaged payloads must import nothing and never crash.
   size_t before = b->page(pageB)->objects.size();

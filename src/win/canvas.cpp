@@ -3,6 +3,7 @@
 #include <richedit.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -143,6 +144,7 @@ const wchar_t* typeName(ObjType t) {
     case ObjType::Button: return L"Button";
     case ObjType::Rect: return L"Rectangle";
     case ObjType::Image: return L"Image";
+    case ObjType::Folder: return L"Folder listing";
   }
   return L"Object";
 }
@@ -494,6 +496,7 @@ std::wstring Canvas::selectionSummary() const {
   s += L"   x " + std::to_wstring(o->x) + L"  y " + std::to_wstring(o->y) + L"   " +
        std::to_wstring(o->w) + L" × " + std::to_wstring(o->h);
   if (o->type == ObjType::Image) s += L"   " + widen(o->prop("name"));
+  if (o->type == ObjType::Folder) s += L"   " + widen(o->prop("path", "."));
   if (o->type == ObjType::Button) {
     int64_t t = o->propInt("target", 0);
     const Page* tp = t > 0 ? doc_->page(t) : nullptr;
@@ -653,6 +656,9 @@ void Canvas::drawObject(HDC dc, const Object& o, bool pressed) {
     }
     case ObjType::Image:
       drawImage(dc, o, r);
+      break;
+    case ObjType::Folder:
+      drawFolder(dc, o, r);
       break;
     case ObjType::Button: {
       int fill = o.propInt("fill", -1);
@@ -909,6 +915,16 @@ void Canvas::onLButtonDown(int x, int y, WPARAM keys) {
     if (o && o->type == ObjType::Text) {
       std::wstring u = urlAt(*o, x, y);  // copy before the callback: it may reload the page
       if (!u.empty() && onOpenLink) onOpenLink(u);
+      return;
+    }
+    if (o && o->type == ObjType::Folder) {
+      int row = folderRowAt(*o, x, y);
+      const FolderCache& fc = folderItems(*o);
+      int idx = row + (folderScroll_.count(o->id) ? folderScroll_[o->id] : 0);
+      if (row >= 0 && idx < (int)fc.items.size() && onOpenLink) {
+        std::wstring full = fc.path + L"\\" + fc.items[(size_t)idx].name;  // copy: the callback may reload
+        onOpenLink(full);
+      }
       return;
     }
     if (o && o->type == ObjType::Button) {
@@ -1550,6 +1566,10 @@ void Canvas::addObject(ObjType t, int cx, int cy) {
     o.setProp("text", "Text");
     o.setPropInt("size", 14);
     o.setPropInt("color", 0x222222);
+  } else if (t == ObjType::Folder) {
+    o.w = 280; o.h = 220;
+    o.setProp("path", ".");
+    o.setPropInt("size", 12);
   } else if (t == ObjType::Button) {
     o.w = 160; o.h = 40;
     o.setProp("label", "Button");
@@ -1566,7 +1586,8 @@ void Canvas::addObject(ObjType t, int cx, int cy) {
   sel_ = {id};
   InvalidateRect(hwnd_, nullptr, FALSE);
   notify();
-  if (t != ObjType::Rect) beginTextEdit();
+  if (t == ObjType::Folder) editProperties();
+  else if (t != ObjType::Rect) beginTextEdit();
 }
 
 void Canvas::deleteSelection() {
@@ -1676,6 +1697,10 @@ void Canvas::editProperties() {
     ibold = f.addCheck(L"Bold", a.propInt("bold", 0) != 0);
     icolor = f.addColor(L"Text color", a.propInt("color", 0x000000), false);
     ifill = f.addColor(L"Fill", a.propInt("fill", -1), true);
+  } else if (a.type == ObjType::Folder) {
+    itext = f.addText(L"Folder (absolute, or relative to this .cairn file)", widen(a.prop("path", ".")));
+    isize = f.addNumber(L"Font size (pt)", a.propInt("size", 12), 6, 200);
+    ifill = f.addColor(L"Fill", a.propInt("fill", 0xFFFFFF), true);
   } else if (a.type == ObjType::Image) {
     itext = f.addText(L"Name", widen(a.prop("name")));
     ifit = f.addCombo(L"Scaling", {L"Stretch to the box", L"Keep proportions"}, a.propInt("fit", 1) ? 1 : 0);
@@ -1701,6 +1726,12 @@ void Canvas::editProperties() {
       if (open.back() == ' ') open.pop_back(); else open.erase(open.begin());
     }
     if (open.empty()) a.props.erase("open"); else a.setProp("open", open);
+  } else if (a.type == ObjType::Folder) {
+    std::string pth = narrow(f.text(itext));
+    while (!pth.empty() && pth.back() == ' ') pth.pop_back();
+    a.setProp("path", pth.empty() ? "." : pth);
+    folderCache_.erase(a.id);
+    folderScroll_.erase(a.id);
   } else if (a.type == ObjType::Image) {
     a.setProp("name", narrow(f.text(itext)));
     a.setPropInt("fit", f.combo(ifit));
@@ -1792,6 +1823,17 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
       int d = GET_WHEEL_DELTA_WPARAM(w);
       if (m == WM_MOUSEWHEEL && (LOWORD(w) & MK_CONTROL)) {
         zoomStep(d > 0 ? 1 : -1);
+      } else if (m == WM_MOUSEWHEEL && doc_ && [&] {
+                   POINT mp{(short)LOWORD(l), (short)HIWORD(l)};
+                   ScreenToClient(hwnd_, &mp);
+                   const Object* fo = objectAt(mp.x, mp.y);
+                   if (!fo || fo->type != ObjType::Folder) return false;
+                   int total = (int)folderItems(*fo).items.size(), &sc = folderScroll_[fo->id];
+                   sc = std::clamp(sc + (d > 0 ? -3 : 3), 0, std::max(0, total - 1));
+                   InvalidateRect(hwnd_, nullptr, FALSE);
+                   return true;
+                 }()) {
+        // scrolled a folder listing
       } else {
         int px = -d * MulDiv(60, dpi_, 96) / 120;
         bool horiz = (m == WM_MOUSEHWHEEL) || (LOWORD(w) & MK_SHIFT);
@@ -1860,7 +1902,8 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
           else if (h == 3 || h == 7) cur = IDC_SIZEWE;
           else if (objectAt(pt.x, pt.y)) cur = IDC_SIZEALL;
         } else if (const Object* o = objectAt(pt.x, pt.y)) {
-          if (o->type == ObjType::Button || (o->type == ObjType::Text && !urlAt(*o, pt.x, pt.y).empty()))
+          if (o->type == ObjType::Button || (o->type == ObjType::Text && !urlAt(*o, pt.x, pt.y).empty()) ||
+              (o->type == ObjType::Folder && folderRowAt(*o, pt.x, pt.y) >= 0))
             cur = IDC_HAND;
         }
         SetCursor(LoadCursor(nullptr, cur));
@@ -1940,6 +1983,95 @@ Canvas::ImgEntry* Canvas::imageFor(int64_t blobId) {
   }
   ImgEntry& slot = (images_[blobId] = e);  // a failed decode is cached too, so we don't retry every paint
   return slot.src ? &slot : nullptr;
+}
+
+std::wstring Canvas::folderPath(const Object& o) const {
+  std::wstring p = widen(o.prop("path", "."));
+  bool drive = p.size() >= 2 && p[1] == L':';
+  bool unc = p.size() >= 2 && p[0] == L'\\' && p[1] == L'\\';
+  if (!drive && !unc && doc_) {  // relative to the .cairn file, so a library can move as a unit
+    std::wstring d = widen(doc_->path());
+    size_t sl = d.find_last_of(L"\\/");
+    if (sl != std::wstring::npos) p = d.substr(0, sl + 1) + p;
+  }
+  while (p.size() > 3 && (p.back() == L'\\' || p.back() == L'/')) p.pop_back();
+  return p;
+}
+
+// Reads the folder at most every two seconds while the page is on screen. Capped at 2000 entries.
+const Canvas::FolderCache& Canvas::folderItems(const Object& o) {
+  FolderCache& c = folderCache_[o.id];
+  std::wstring path = folderPath(o);
+  DWORD now = GetTickCount();
+  if (c.path == path && c.tick && now - c.tick < 2000) return c;
+  c.path = path;
+  c.tick = now ? now : 1;
+  c.items.clear();
+  c.ok = false;
+  std::error_code ec;
+  std::filesystem::directory_iterator it(std::filesystem::path(path), std::filesystem::directory_options::skip_permission_denied, ec);
+  if (ec) return c;
+  c.ok = true;
+  for (; !ec && it != std::filesystem::directory_iterator() && c.items.size() < 2000; it.increment(ec)) {
+    std::error_code e2;
+    FolderEntry fe;
+    fe.name = it->path().filename().wstring();
+    fe.dir = it->is_directory(e2);
+    if (!fe.name.empty() && fe.name[0] != L'.') c.items.push_back(std::move(fe));
+  }
+  std::sort(c.items.begin(), c.items.end(), [](const FolderEntry& a, const FolderEntry& b) {
+    if (a.dir != b.dir) return a.dir;
+    return CompareStringOrdinal(a.name.c_str(), -1, b.name.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+  });
+  return c;
+}
+
+int Canvas::folderRowAt(const Object& o, int px, int py) const {
+  RECT r = objRectPx(eff(o));
+  int rowH = std::max(8, (int)std::lround(o.propInt("size", 12) * dpi_ / 72.0 * 1.5 * scale()));
+  int top = r.top + rowH + 4;  // header row
+  if (px < r.left || px >= r.right || py < top || py >= r.bottom) return -1;
+  return (py - top) / rowH;
+}
+
+void Canvas::drawFolder(HDC dc, const Object& o, const RECT& r) {
+  int fill = o.propInt("fill", 0xFFFFFF);
+  HBRUSH b = CreateSolidBrush(toColorRef(fill));
+  FillRect(dc, &r, b);
+  DeleteObject(b);
+  FrameRect(dc, &r, (HBRUSH)GetStockObject(GRAY_BRUSH));
+  const FolderCache& fc = folderItems(o);
+  int pt = o.propInt("size", 12);
+  HGDIOBJ oldFont = SelectObject(dc, fontFor(pt, false));
+  SetBkMode(dc, TRANSPARENT);
+  int rowH = std::max(8, (int)std::lround(pt * dpi_ / 72.0 * 1.5 * scale()));
+  int pad = MulDiv(4, dpi_, 96);
+  RECT hdr{r.left, r.top, r.right, r.top + rowH + 4};
+  HBRUSH hb = CreateSolidBrush(RGB(232, 236, 242));
+  FillRect(dc, &hdr, hb);
+  DeleteObject(hb);
+  std::wstring title = fc.path;
+  size_t sl = title.find_last_of(L"\\/");
+  if (sl != std::wstring::npos && sl + 1 < title.size()) title = title.substr(sl + 1);
+  SetTextColor(dc, RGB(30, 30, 30));
+  RECT tr{r.left + pad, hdr.top, r.right - pad, hdr.bottom};
+  std::wstring head = fc.ok ? title + L"\\" : L"(can't read that folder)";
+  DrawTextW(dc, head.c_str(), (int)head.size(), &tr, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  int first = folderScroll_.count(o.id) ? folderScroll_[o.id] : 0;
+  int y = hdr.bottom;
+  for (size_t i = (size_t)first; i < fc.items.size() && y + rowH <= r.bottom; ++i, y += rowH) {
+    const FolderEntry& e = fc.items[i];
+    SetTextColor(dc, e.dir ? RGB(20, 60, 140) : RGB(40, 40, 40));
+    RECT er{r.left + pad, y, r.right - pad, y + rowH};
+    std::wstring label = e.dir ? e.name + L"\\" : e.name;
+    DrawTextW(dc, label.c_str(), (int)label.size(), &er, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  }
+  if (fc.ok && fc.items.empty()) {
+    SetTextColor(dc, RGB(130, 130, 130));
+    RECT er{r.left + pad, hdr.bottom, r.right - pad, hdr.bottom + rowH};
+    DrawTextW(dc, L"(empty)", -1, &er, DT_VCENTER | DT_SINGLELINE);
+  }
+  SelectObject(dc, oldFont);
 }
 
 void Canvas::drawImage(HDC dc, const Object& o, const RECT& r) {

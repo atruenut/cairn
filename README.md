@@ -70,6 +70,11 @@ right words, and the whole replace is a single undo step.
 Cairn page with objects in their places, the images, and working page-to-page buttons). No scripts; web links
 are kept, buttons that open local files are not. It never writes into an existing folder.
 
+**Folder listing.** Edit > Add Folder Listing puts a live view of a folder on the page: folders first, then
+files, hidden dot-files left out. In Run mode, click an entry to open it (the same safety checks as any link
+button apply) and use the wheel over it to scroll. The path can be relative to the .cairn file, so a library
+can move as a unit. It rereads the folder every couple of seconds, so it is never stale.
+
 **Markdown.** File > Export as Markdown writes the text of every page (one `# heading` per page, bold/italic/
 strikethrough/code/links kept). File > Import Markdown turns a `.md` file into pages: each `# heading` starts a
 page, paragraphs, lists, quotes and code blocks become text objects, and it is one undo step per page. Text only;
@@ -98,7 +103,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.11.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.12.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

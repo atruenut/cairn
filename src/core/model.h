@@ -9,7 +9,7 @@
 
 namespace cairn {
 
-enum class ObjType : int { Text = 1, Button = 2, Rect = 3, Image = 4 };
+enum class ObjType : int { Text = 1, Button = 2, Rect = 3, Image = 4, Folder = 5 };
 
 // Object properties are a small string->string map, stored one "key=value" per line.
 //

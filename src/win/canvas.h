@@ -159,6 +159,14 @@ class Canvas {
   ImgEntry* imageFor(int64_t blobId);
   void clearImages();
   void drawImage(HDC dc, const Object& o, const RECT& r);
+  void drawFolder(HDC dc, const Object& o, const RECT& r);
+  struct FolderEntry { std::wstring name; bool dir; };
+  struct FolderCache { std::wstring path; DWORD tick = 0; std::vector<FolderEntry> items; bool ok = false; };
+  const FolderCache& folderItems(const Object& o);
+  std::wstring folderPath(const Object& o) const;
+  int folderRowAt(const Object& o, int px, int py) const;  // entry index under a client point, or -1
+  std::map<int64_t, FolderCache> folderCache_;
+  std::map<int64_t, int> folderScroll_;
   void placeNew(int w, int h, int px, int py, int& x, int& y);
   int64_t addTextObject(const std::string& utf8, int px, int py, const std::string& runsEnc = "");
   int measureTextHeight(const std::string& utf8, int pt, int widthUnits);

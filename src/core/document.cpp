@@ -799,7 +799,7 @@ std::vector<int64_t> Document::importObjects(int64_t pageId, const std::string& 
     char tag = 0;
     if (std::sscanf(line.c_str(), "%c %d %d %d %d %d %llu %llu %llu %llu", &tag, &type, &x, &y, &w,
                     &h, &pl, &bl, &ml, &nlen) != 10 ||
-        tag != 'O' || type < 1 || type > 4)
+        tag != 'O' || type < 1 || type > 5)
       return {};
     unsigned long long total = pl + bl + ml + nlen;
     if (total < pl || total > payload.size() - pos) return {};  // overflow or truncated
