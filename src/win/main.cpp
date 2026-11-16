@@ -31,12 +31,12 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.18.0";
+constexpr const char* kVersion = "0.19.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
 enum Ids {
-  IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_STATUS, IDC_LINKLABEL,
+  IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_CANVAS2, IDC_STATUS, IDC_LINKLABEL,
 
   IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
@@ -50,7 +50,7 @@ enum Ids {
   IDM_EDIT_CUT, IDM_EDIT_COPY, IDM_EDIT_PASTE, IDM_EDIT_ADDIMAGE, IDM_VIEW_PALETTE,
   IDM_CTX_OPENLINK, IDM_CTX_COPYLINK, IDM_CTX_ADDTEXT, IDM_CTX_ADDBUTTON, IDM_CTX_ADDRECT, IDM_CTX_ADDIMAGE,
   IDM_CTX_PASTE, IDM_CTX_PASTETEXT, IDM_PAGE_TAGS,
-  IDM_FMT_BIGGER, IDM_FMT_SMALLER, IDM_VIEW_FKEYS,
+  IDM_FMT_BIGGER, IDM_FMT_SMALLER, IDM_VIEW_FKEYS, IDM_VIEW_SPLIT,
   IDM_HELP_ABOUT,
 };
 
@@ -69,6 +69,9 @@ struct App {
   int dpi = 96;
 
   Canvas canvas;
+  Canvas canvas2;               // the second pane of the split view, created on first use
+  Canvas* active = &canvas;     // the pane commands go to
+  bool split = false;
   std::unique_ptr<Document> doc;
   std::vector<int64_t> listIds, backIds;
   std::vector<int64_t> hist;
@@ -86,6 +89,12 @@ struct App {
 App g;
 
 int S(int v) { return MulDiv(v, g.dpi, 96); }
+
+// The pane that commands, the toolbar and the status bar refer to.
+Canvas& cv() { return *g.active; }
+void wirePane(Canvas& c);
+void activatePane(Canvas* c);
+void setSplit(bool on);
 
 void showError(const std::wstring& msg) {
   MessageBoxW(g.hwnd, msg.c_str(), kAppName, MB_OK | MB_ICONWARNING);
@@ -137,8 +146,8 @@ void saveSettings() {
   writeIniInt(L"h", wp.rcNormalPosition.bottom - wp.rcNormalPosition.top);
   writeIniInt(L"max", wp.showCmd == SW_SHOWMAXIMIZED ? 1 : 0);
   writeIniInt(L"split", g.splitX);
-  writeIniInt(L"snap", g.canvas.snap() ? 1 : 0);
-  writeIniInt(L"edit", g.canvas.editMode() ? 1 : 0);
+  writeIniInt(L"snap", cv().snap() ? 1 : 0);
+  writeIniInt(L"edit", cv().editMode() ? 1 : 0);
 }
 
 // ------------------------------------------------------------------- fonts
@@ -163,7 +172,7 @@ void rebuildFont() {
 void updateTitle() {
   std::wstring t;
   if (g.doc) {
-    if (const Page* p = g.doc->page(g.canvas.pageId())) t += widen(p->title) + L" — ";
+    if (const Page* p = g.doc->page(cv().pageId())) t += widen(p->title) + L" — ";
     t += baseName(widen(g.doc->path())) + L" — ";
   }
   t += kAppName;
@@ -177,17 +186,17 @@ const wchar_t* tooltipFor(int id);
 
 void updateStatus() {
   if (!g.status) return;
-  const wchar_t* mode = g.canvas.editMode() ? L"  EDIT MODE" : L"  RUN MODE";
+  const wchar_t* mode = cv().editMode() ? L"  EDIT MODE" : L"  RUN MODE";
   SendMessageW(g.status, SB_SETTEXTW, 0, (LPARAM)mode);
-  std::wstring sel = g.canvas.selectionSummary();
-  if (sel.empty() && !g.canvas.editMode()) sel = L"Ctrl+E to edit this page";
+  std::wstring sel = cv().selectionSummary();
+  if (sel.empty() && !cv().editMode()) sel = L"Ctrl+E to edit this page";
   SendMessageW(g.status, SB_SETTEXTW, 1, (LPARAM)(L"  " + sel).c_str());
-  SendMessageW(g.status, SB_SETTEXTW, 2, (LPARAM)(g.canvas.snap() ? L"  Snap on" : L"  Snap off"));
+  SendMessageW(g.status, SB_SETTEXTW, 2, (LPARAM)(cv().snap() ? L"  Snap on" : L"  Snap off"));
   std::wstring pg;
   if (g.doc)
-    if (const Page* p = g.doc->page(g.canvas.pageId()))
+    if (const Page* p = g.doc->page(cv().pageId()))
       pg = std::to_wstring(p->w) + L" × " + std::to_wstring(p->h) + L"   ";
-  pg += std::to_wstring((int)std::lround(g.canvas.zoom() * 100)) + L"%";
+  pg += std::to_wstring((int)std::lround(cv().zoom() * 100)) + L"%";
   SendMessageW(g.status, SB_SETTEXTW, 3, (LPARAM)(L"  " + pg).c_str());
   syncToolbar();
 }
@@ -215,7 +224,7 @@ void refreshPageList() {
     if (p && !p->tags.empty())
       for (const std::string& t : cairn::splitTags(p->tags)) label += L"  #" + widen(t);
     SendMessageW(g.pageList, LB_ADDSTRING, 0, (LPARAM)label.c_str());
-    if (g.listIds[i] == g.canvas.pageId()) sel = (int)i;
+    if (g.listIds[i] == cv().pageId()) sel = (int)i;
   }
   SendMessageW(g.pageList, LB_SETCURSEL, (WPARAM)sel, 0);
   SendMessageW(g.pageList, LB_SETTOPINDEX, (WPARAM)std::max(0, top), 0);
@@ -226,7 +235,7 @@ void refreshPageList() {
 
 void refreshBacklinks() {
   if (!g.doc) return;
-  auto bl = g.doc->backlinks(g.canvas.pageId());
+  auto bl = g.doc->backlinks(cv().pageId());
   g.backIds.clear();
   g.inRefresh = true;
   SendMessageW(g.backList, LB_RESETCONTENT, 0, 0);
@@ -244,7 +253,7 @@ void navigate(int64_t id, bool push) {
     g.hist.push_back(id);
     g.hpos = (int)g.hist.size() - 1;
   }
-  g.canvas.setPage(id);
+  cv().setPage(id);
   refreshPageList();
   refreshBacklinks();
   updateTitle();
@@ -261,13 +270,18 @@ void historyStep(int dir) {
 
 void onDocChanged() {
   if (!g.doc) return;
-  if (!g.doc->page(g.canvas.pageId()) && !g.doc->pages().empty()) {
+  if (g.canvas2.hwnd() && g.active != &g.canvas2 && !g.doc->page(g.canvas2.pageId()) && !g.doc->pages().empty())
+    g.canvas2.setPage(g.doc->pages().front().id);  // the other pane's page vanished
+  if (g.canvas.pageId() && g.active != &g.canvas && !g.doc->page(g.canvas.pageId()) && !g.doc->pages().empty())
+    g.canvas.setPage(g.doc->pages().front().id);
+  if (!g.doc->page(cv().pageId()) && !g.doc->pages().empty()) {
     navigate(g.doc->pages().front().id, false);  // current page vanished (delete or undo)
   } else {
     refreshPageList();
     refreshBacklinks();
   }
   g.canvas.docChanged();
+  if (g.canvas2.hwnd()) g.canvas2.docChanged();
   updateTitle();
   updateStatus();
 }
@@ -323,7 +337,16 @@ void layout() {
   MoveWindow(g.backList, pad, by, leftW - 2 * pad, std::max(S(30), bottom - by - pad), TRUE);
 
   int cx = leftW + splitW;
-  MoveWindow(g.canvas.hwnd(), cx, top, std::max(10, (int)rc.right - cx), std::max(10, bottom - top), TRUE);
+  int cw = std::max(10, (int)rc.right - cx), ch = std::max(10, bottom - top);
+  if (g.split && g.canvas2.hwnd()) {
+    int half = (cw - splitW) / 2;
+    MoveWindow(g.canvas.hwnd(), cx, top, half, ch, TRUE);
+    MoveWindow(g.canvas2.hwnd(), cx + half + splitW, top, cw - half - splitW, ch, TRUE);
+    ShowWindow(g.canvas2.hwnd(), SW_SHOW);
+  } else {
+    MoveWindow(g.canvas.hwnd(), cx, top, cw, ch, TRUE);
+    if (g.canvas2.hwnd()) ShowWindow(g.canvas2.hwnd(), SW_HIDE);
+  }
 }
 
 // ---------------------------------------------------------------- documents
@@ -336,7 +359,8 @@ std::wstring uniquePath(const std::wstring& dir, const std::wstring& stem) {
 }
 
 void setDoc(std::unique_ptr<Document> d) {
-  g.canvas.setDocument(nullptr);  // never leave the canvas pointing at a dying document
+  g.canvas.setDocument(nullptr);  // never leave a canvas pointing at a dying document
+  if (g.canvas2.hwnd()) g.canvas2.setDocument(nullptr);
   g.doc = std::move(d);
   g.hist.clear();
   g.hpos = -1;
@@ -344,6 +368,10 @@ void setDoc(std::unique_ptr<Document> d) {
   if (!g.doc) return;
   g.doc->onChange = [] { onDocChanged(); };
   g.canvas.setDocument(g.doc.get());
+  if (g.canvas2.hwnd()) {
+    g.canvas2.setDocument(g.doc.get());
+    if (!g.doc->pages().empty()) g.canvas2.setPage(g.doc->pages().front().id);
+  }
   writeIni(L"last", widen(g.doc->path()));
   if (!g.doc->pages().empty()) navigate(g.doc->pages().front().id, true);
   else {
@@ -540,7 +568,7 @@ void cmdReplace() {
   lastScope = f.combo(iscope);
   lastCase = f.check(icase);
   if (lastFind.empty()) return;
-  int64_t only = lastScope == 0 ? g.canvas.pageId() : 0;
+  int64_t only = lastScope == 0 ? cv().pageId() : 0;
   std::string fd = narrow(lastFind), rp = narrow(lastRepl);
   auto dry = g.doc->replaceAll(fd, rp, lastCase, only, true);
   if (dry.matches == 0) {
@@ -574,14 +602,14 @@ void cmdNewPage() {
 }
 
 void cmdRenamePage() {
-  const Page* p = g.doc ? g.doc->page(g.canvas.pageId()) : nullptr;
+  const Page* p = g.doc ? g.doc->page(cv().pageId()) : nullptr;
   if (!p) return;
   std::wstring t = widen(p->title);
   if (promptText(L"Rename Page", L"Title", t)) g.doc->renamePage(p->id, narrow(t));
 }
 
 void cmdDeletePage() {
-  const Page* p = g.doc ? g.doc->page(g.canvas.pageId()) : nullptr;
+  const Page* p = g.doc ? g.doc->page(cv().pageId()) : nullptr;
   if (!p) return;
   if (g.doc->pages().size() <= 1) {
     showError(L"A Cairn needs at least one page.");
@@ -707,7 +735,7 @@ void cmdAddImage(int px = -1, int py = -1) {
       next += name.size() + 1;
     }
   }
-  g.canvas.addFilesAt(files, px, py);
+  cv().addFilesAt(files, px, py);
 }
 
 void cmdAddAudio() {
@@ -721,7 +749,7 @@ void cmdAddAudio() {
   ofn.nMaxFile = 1023;
   ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
   if (!GetOpenFileNameW(&ofn)) return;
-  g.canvas.addFilesAt({std::wstring(buf)}, -1, -1);
+  cv().addFilesAt({std::wstring(buf)}, -1, -1);
 }
 
 // ------------------------------------------------------------ function-key bar
@@ -737,8 +765,8 @@ const FKey kFKeys[10] = {
 int gFkHover = -1, gFkDown = -1;
 
 bool fkEnabled(int i) {
-  bool has = g.doc != nullptr, edit = g.canvas.editMode();
-  size_t nsel = g.canvas.selectionCount();
+  bool has = g.doc != nullptr, edit = cv().editMode();
+  size_t nsel = cv().selectionCount();
   switch (i) {
     case 0: return true;
     case 1: return has && edit && nsel == 1;
@@ -779,7 +807,7 @@ LRESULT CALLBACK fkProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         DeleteObject(pen);
         std::wstring key = L"F" + std::to_wstring(i + 1);
         std::wstring label = kFKeys[i].label;
-        if (i == 2) label = g.canvas.editMode() ? L"Run" : L"Edit";
+        if (i == 2) label = cv().editMode() ? L"Run" : L"Edit";
         RECT kr{c.left + S(5), 0, c.left + S(5) + S(22), rc.bottom};
         SetTextColor(dc, on ? RGB(0x2F, 0x6F, 0xDE) : GetSysColor(COLOR_GRAYTEXT));
         DrawTextW(dc, key.c_str(), -1, &kr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
@@ -905,6 +933,7 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_FMT_BIGGER, L"Format: Bigger Text", L"Ctrl+]"},
     {IDM_FMT_SMALLER, L"Format: Smaller Text", L"Ctrl+["},
     {IDM_VIEW_FKEYS, L"Toggle Function Key Bar", L""},
+    {IDM_VIEW_SPLIT, L"Toggle Split View", L"Ctrl+\\"},
     {IDM_EDIT_DUPLICATE, L"Duplicate Selection", L"Ctrl+D"},
     {IDM_EDIT_DELETE, L"Delete Selection", L"Del"},
     {IDM_EDIT_SELECTALL, L"Select All", L"Ctrl+A"},
@@ -974,7 +1003,7 @@ void palRun() {
   if (i < 0 || i >= (int)pal.shown.size()) return;
   PalEntry e = pal.shown[(size_t)i];
   palClose();
-  SetFocus(g.canvas.hwnd());
+  SetFocus(cv().hwnd());
   if (e.page > 0) navigate(e.page, true);
   else PostMessageW(g.hwnd, WM_COMMAND, MAKEWPARAM(e.cmd, 0), 0);
 }
@@ -990,7 +1019,7 @@ LRESULT CALLBACK palEditProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD
       case VK_NEXT: move(cur + 8); return 0;
       case VK_PRIOR: move(cur - 8); return 0;
       case VK_RETURN: palRun(); return 0;
-      case VK_ESCAPE: palClose(); SetFocus(g.canvas.hwnd()); return 0;
+      case VK_ESCAPE: palClose(); SetFocus(cv().hwnd()); return 0;
     }
   }
   if (m == WM_CHAR && (w == VK_RETURN || w == VK_ESCAPE)) return 0;  // no beep
@@ -1121,36 +1150,36 @@ void onCommand(int id, int code, HWND ctl) {
 
       case IDM_EDIT_UNDO: if (g.doc) g.doc->undo(); break;
       case IDM_EDIT_REDO: if (g.doc) g.doc->redo(); break;
-      case IDM_EDIT_ADDTEXT: g.canvas.addObject(ObjType::Text); break;
-      case IDM_EDIT_ADDBUTTON: g.canvas.addObject(ObjType::Button); break;
-      case IDM_EDIT_ADDRECT: g.canvas.addObject(ObjType::Rect); break;
-      case IDM_EDIT_ADDFOLDER: g.canvas.addObject(ObjType::Folder); break;
-      case IDM_EDIT_ADDTABLE: g.canvas.addObject(ObjType::Table); break;
+      case IDM_EDIT_ADDTEXT: cv().addObject(ObjType::Text); break;
+      case IDM_EDIT_ADDBUTTON: cv().addObject(ObjType::Button); break;
+      case IDM_EDIT_ADDRECT: cv().addObject(ObjType::Rect); break;
+      case IDM_EDIT_ADDFOLDER: cv().addObject(ObjType::Folder); break;
+      case IDM_EDIT_ADDTABLE: cv().addObject(ObjType::Table); break;
       case IDM_EDIT_ADDAUDIO: cmdAddAudio(); break;
-      case IDM_TBL_ROW_ABOVE: g.canvas.tableOp(0); break;
-      case IDM_TBL_ROW_BELOW: g.canvas.tableOp(1); break;
-      case IDM_TBL_ROW_DEL: g.canvas.tableOp(2); break;
-      case IDM_TBL_COL_LEFT: g.canvas.tableOp(3); break;
-      case IDM_TBL_COL_RIGHT: g.canvas.tableOp(4); break;
-      case IDM_TBL_COL_DEL: g.canvas.tableOp(5); break;
+      case IDM_TBL_ROW_ABOVE: cv().tableOp(0); break;
+      case IDM_TBL_ROW_BELOW: cv().tableOp(1); break;
+      case IDM_TBL_ROW_DEL: cv().tableOp(2); break;
+      case IDM_TBL_COL_LEFT: cv().tableOp(3); break;
+      case IDM_TBL_COL_RIGHT: cv().tableOp(4); break;
+      case IDM_TBL_COL_DEL: cv().tableOp(5); break;
       case IDM_EDIT_ADDIMAGE: cmdAddImage(); break;
-      case IDM_EDIT_CUT: g.canvas.copySelection(true); break;
-      case IDM_EDIT_COPY: g.canvas.copySelection(false); break;
-      case IDM_EDIT_PASTE: g.canvas.paste(); break;
-      case IDM_EDIT_PASTETEXT: g.canvas.paste(true); break;
+      case IDM_EDIT_CUT: cv().copySelection(true); break;
+      case IDM_EDIT_COPY: cv().copySelection(false); break;
+      case IDM_EDIT_PASTE: cv().paste(); break;
+      case IDM_EDIT_PASTETEXT: cv().paste(true); break;
       case IDM_CTX_PASTE: case IDM_CTX_PASTETEXT: {
-        POINT c = g.canvas.contextPoint();
-        bool atPoint = g.canvas.selectionCount() == 0;  // on an object, paste is the normal offset paste
-        g.canvas.paste(id == IDM_CTX_PASTETEXT, atPoint ? (int)c.x : -1, atPoint ? (int)c.y : -1);
+        POINT c = cv().contextPoint();
+        bool atPoint = cv().selectionCount() == 0;  // on an object, paste is the normal offset paste
+        cv().paste(id == IDM_CTX_PASTETEXT, atPoint ? (int)c.x : -1, atPoint ? (int)c.y : -1);
         break;
       }
-      case IDM_CTX_ADDTEXT: g.canvas.addObject(ObjType::Text, g.canvas.contextPoint().x, g.canvas.contextPoint().y); break;
-      case IDM_CTX_ADDBUTTON: g.canvas.addObject(ObjType::Button, g.canvas.contextPoint().x, g.canvas.contextPoint().y); break;
-      case IDM_CTX_ADDRECT: g.canvas.addObject(ObjType::Rect, g.canvas.contextPoint().x, g.canvas.contextPoint().y); break;
-      case IDM_CTX_ADDIMAGE: cmdAddImage(g.canvas.contextPoint().x, g.canvas.contextPoint().y); break;
-      case IDM_CTX_OPENLINK: openLink(g.canvas.contextLink()); break;
+      case IDM_CTX_ADDTEXT: cv().addObject(ObjType::Text, cv().contextPoint().x, cv().contextPoint().y); break;
+      case IDM_CTX_ADDBUTTON: cv().addObject(ObjType::Button, cv().contextPoint().x, cv().contextPoint().y); break;
+      case IDM_CTX_ADDRECT: cv().addObject(ObjType::Rect, cv().contextPoint().x, cv().contextPoint().y); break;
+      case IDM_CTX_ADDIMAGE: cmdAddImage(cv().contextPoint().x, cv().contextPoint().y); break;
+      case IDM_CTX_OPENLINK: openLink(cv().contextLink()); break;
       case IDM_CTX_COPYLINK: {
-        std::wstring t = g.canvas.contextLink();
+        std::wstring t = cv().contextLink();
         if (!t.empty() && OpenClipboard(g.hwnd)) {
           EmptyClipboard();
           HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (t.size() + 1) * sizeof(wchar_t));
@@ -1163,34 +1192,35 @@ void onCommand(int id, int code, HWND ctl) {
         }
         break;
       }
-      case IDM_FMT_BOLD: g.canvas.applyFormat(Canvas::FmtBold); break;
-      case IDM_FMT_ITALIC: g.canvas.applyFormat(Canvas::FmtItalic); break;
-      case IDM_FMT_UNDERLINE: g.canvas.applyFormat(Canvas::FmtUnderline); break;
-      case IDM_FMT_STRIKE: g.canvas.applyFormat(Canvas::FmtStrike); break;
-      case IDM_FMT_LINK: g.canvas.applyFormat(Canvas::FmtLink); break;
-      case IDM_FMT_COLOR: g.canvas.applyFormat(Canvas::FmtColor); break;
-      case IDM_FMT_CODE: g.canvas.applyFormat(Canvas::FmtCode); break;
-      case IDM_FMT_CLEAR: g.canvas.applyFormat(Canvas::FmtClear); break;
-      case IDM_FMT_BIGGER: g.canvas.changeTextSize(1); break;
-      case IDM_FMT_SMALLER: g.canvas.changeTextSize(-1); break;
+      case IDM_FMT_BOLD: cv().applyFormat(Canvas::FmtBold); break;
+      case IDM_FMT_ITALIC: cv().applyFormat(Canvas::FmtItalic); break;
+      case IDM_FMT_UNDERLINE: cv().applyFormat(Canvas::FmtUnderline); break;
+      case IDM_FMT_STRIKE: cv().applyFormat(Canvas::FmtStrike); break;
+      case IDM_FMT_LINK: cv().applyFormat(Canvas::FmtLink); break;
+      case IDM_FMT_COLOR: cv().applyFormat(Canvas::FmtColor); break;
+      case IDM_FMT_CODE: cv().applyFormat(Canvas::FmtCode); break;
+      case IDM_FMT_CLEAR: cv().applyFormat(Canvas::FmtClear); break;
+      case IDM_FMT_BIGGER: cv().changeTextSize(1); break;
+      case IDM_FMT_SMALLER: cv().changeTextSize(-1); break;
+      case IDM_VIEW_SPLIT: setSplit(!g.split); break;
       case IDM_VIEW_FKEYS:
         g.fkShow = !g.fkShow;
         writeIniInt(L"fkeys", g.fkShow ? 1 : 0);
         layout();
         break;
-      case IDM_EDIT_EDITTEXT: g.canvas.beginTextEdit(); break;
+      case IDM_EDIT_EDITTEXT: cv().beginTextEdit(); break;
       case IDM_EDIT_REPLACE: cmdReplace(); break;
-      case IDM_EDIT_PROPS: g.canvas.setEditMode(true); g.canvas.editProperties(); break;
-      case IDM_EDIT_DUPLICATE: g.canvas.duplicateSelection(); break;
-      case IDM_EDIT_DELETE: g.canvas.deleteSelection(); break;
-      case IDM_EDIT_SELECTALL: g.canvas.selectAll(); break;
-      case IDM_EDIT_FRONT: g.canvas.bringToFront(); break;
-      case IDM_EDIT_BACK: g.canvas.sendToBack(); break;
+      case IDM_EDIT_PROPS: cv().setEditMode(true); cv().editProperties(); break;
+      case IDM_EDIT_DUPLICATE: cv().duplicateSelection(); break;
+      case IDM_EDIT_DELETE: cv().deleteSelection(); break;
+      case IDM_EDIT_SELECTALL: cv().selectAll(); break;
+      case IDM_EDIT_FRONT: cv().bringToFront(); break;
+      case IDM_EDIT_BACK: cv().sendToBack(); break;
 
       case IDM_PAGE_NEW: cmdNewPage(); break;
       case IDM_PAGE_RENAME: cmdRenamePage(); break;
       case IDM_PAGE_DELETE: cmdDeletePage(); break;
-      case IDM_PAGE_PROPS: g.canvas.editPageProperties(); break;
+      case IDM_PAGE_PROPS: cv().editPageProperties(); break;
       case IDM_PAGE_TAGS: cmdTagMenu(); break;
       case IDM_PAGE_MOVEUP: cmdMovePage(-1); break;
       case IDM_PAGE_MOVEDOWN: cmdMovePage(+1); break;
@@ -1198,11 +1228,11 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_PAGE_FORWARD: historyStep(+1); break;
       case IDM_PAGE_FIND: SetFocus(g.search); SendMessageW(g.search, EM_SETSEL, 0, -1); break;
 
-      case IDM_VIEW_EDITMODE: g.canvas.setEditMode(!g.canvas.editMode()); break;
-      case IDM_VIEW_SNAP: g.canvas.setSnap(!g.canvas.snap()); break;
-      case IDM_VIEW_ZOOMIN: g.canvas.zoomStep(+1); break;
-      case IDM_VIEW_ZOOMOUT: g.canvas.zoomStep(-1); break;
-      case IDM_VIEW_ZOOM100: g.canvas.setZoom(1.0); break;
+      case IDM_VIEW_EDITMODE: cv().setEditMode(!cv().editMode()); break;
+      case IDM_VIEW_SNAP: cv().setSnap(!cv().snap()); break;
+      case IDM_VIEW_ZOOMIN: cv().zoomStep(+1); break;
+      case IDM_VIEW_ZOOMOUT: cv().zoomStep(-1); break;
+      case IDM_VIEW_ZOOM100: cv().setZoom(1.0); break;
       case IDM_VIEW_PALETTE: showPalette(); break;
       case IDM_HELP_ABOUT: cmdAbout(); break;
 
@@ -1309,6 +1339,7 @@ HMENU buildMenu() {
   add(view, IDM_VIEW_EDITMODE, L"&Edit Mode\tCtrl+E");
   add(view, IDM_VIEW_SNAP, L"&Snap to Grid");
   add(view, IDM_VIEW_FKEYS, L"&Function Key Bar");
+  add(view, IDM_VIEW_SPLIT, L"&Split View\tCtrl+\\");
   sep(view);
   add(view, IDM_VIEW_ZOOMIN, L"Zoom &In\tCtrl++");
   add(view, IDM_VIEW_ZOOMOUT, L"Zoom &Out\tCtrl+-");
@@ -1327,7 +1358,7 @@ HACCEL buildAccel() {
       {C, 'N', IDM_FILE_NEW},          {C, 'O', IDM_FILE_OPEN},
       {C, 'Z', IDM_EDIT_UNDO},         {C, 'Y', IDM_EDIT_REDO},
       {CS, 'Z', IDM_EDIT_REDO},        {C, 'D', IDM_EDIT_DUPLICATE},
-      {C, 'A', IDM_EDIT_SELECTALL},    {C, 'E', IDM_VIEW_EDITMODE},
+      {C, 'A', IDM_EDIT_SELECTALL},    {C, 'E', IDM_VIEW_EDITMODE},   {C, VK_OEM_5, IDM_VIEW_SPLIT},
       {C, 'F', IDM_PAGE_FIND},         {C, 'H', IDM_EDIT_REPLACE},         {CS, 'T', IDM_EDIT_ADDTEXT},
       {CS, 'B', IDM_EDIT_ADDBUTTON},   {CS, 'R', IDM_EDIT_ADDRECT},
       {CS, 'N', IDM_PAGE_NEW},         {A, VK_LEFT, IDM_PAGE_BACK},
@@ -1359,8 +1390,8 @@ void setMenuText(HMENU m, int id, const std::wstring& text, bool enabled) {
 void updateMenuState() {
   HMENU m = g.menu;
   bool has = g.doc != nullptr;
-  bool edit = g.canvas.editMode();
-  size_t nsel = g.canvas.selectionCount();
+  bool edit = cv().editMode();
+  size_t nsel = cv().selectionCount();
 
   std::wstring u = L"&Undo", r = L"&Redo";
   if (has && g.doc->canUndo()) u += L" " + widen(g.doc->undoLabel());
@@ -1394,7 +1425,8 @@ void updateMenuState() {
   en(IDM_PAGE_BACK, g.hpos > 0);
   en(IDM_PAGE_FORWARD, g.hpos >= 0 && g.hpos + 1 < (int)g.hist.size());
   CheckMenuItem(m, IDM_VIEW_EDITMODE, MF_BYCOMMAND | (edit ? MF_CHECKED : MF_UNCHECKED));
-  CheckMenuItem(m, IDM_VIEW_SNAP, MF_BYCOMMAND | (g.canvas.snap() ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(m, IDM_VIEW_SNAP, MF_BYCOMMAND | (cv().snap() ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(m, IDM_VIEW_SPLIT, MF_BYCOMMAND | (g.split ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(m, IDM_VIEW_FKEYS, MF_BYCOMMAND | (g.fkShow ? MF_CHECKED : MF_UNCHECKED));
 }
 
@@ -1673,12 +1705,12 @@ void createToolbar() {
 void syncToolbar() {
   if (!g.toolbar) return;
   bool has = g.doc != nullptr;
-  bool edit = g.canvas.editMode();
-  size_t nsel = g.canvas.selectionCount();
+  bool edit = cv().editMode();
+  size_t nsel = cv().selectionCount();
   int ci = currentPageIndex();
   auto en = [&](int id, bool on) { SendMessageW(g.toolbar, TB_ENABLEBUTTON, (WPARAM)id, MAKELONG(on ? TRUE : FALSE, 0)); };
   auto chk = [&](int id, bool on) { SendMessageW(g.toolbar, TB_CHECKBUTTON, (WPARAM)id, MAKELONG(on ? TRUE : FALSE, 0)); };
-  unsigned sty = g.canvas.editStyleFlags();  // B / I / U show the style at the caret while editing
+  unsigned sty = cv().editStyleFlags();  // B / I / U show the style at the caret while editing
   chk(IDM_FMT_BOLD, (sty & cairn::kBold) != 0);
   chk(IDM_FMT_ITALIC, (sty & cairn::kItalic) != 0);
   chk(IDM_FMT_UNDERLINE, (sty & cairn::kUnderline) != 0);
@@ -1697,14 +1729,14 @@ void syncToolbar() {
   for (int id : {IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDIMAGE, IDM_VIEW_ZOOMIN,
                  IDM_VIEW_ZOOMOUT, IDM_VIEW_EDITMODE, IDM_VIEW_SNAP, IDM_VIEW_PALETTE})
     en(id, has);
-  bool fmt = edit && g.canvas.selectionHasText();
+  bool fmt = edit && cv().selectionHasText();
   for (int id : {IDM_FMT_BOLD, IDM_FMT_ITALIC, IDM_FMT_UNDERLINE, IDM_FMT_LINK}) en(id, fmt);
-  bool sz = edit && g.canvas.selectionHasSizable();
+  bool sz = edit && cv().selectionHasSizable();
   en(IDM_FMT_BIGGER, sz);
   en(IDM_FMT_SMALLER, sz);
   if (g.fkeys) InvalidateRect(g.fkeys, nullptr, FALSE);
   chk(IDM_VIEW_EDITMODE, edit);
-  chk(IDM_VIEW_SNAP, g.canvas.snap());
+  chk(IDM_VIEW_SNAP, cv().snap());
 }
 
 const wchar_t* tooltipFor(int id) {
@@ -1717,9 +1749,9 @@ const wchar_t* tooltipFor(int id) {
 
 void canvasContextMenu(POINT screen) {
   if (!g.doc) return;
-  bool edit = g.canvas.editMode();
-  size_t nsel = g.canvas.selectionCount();
-  std::wstring link = g.canvas.contextLink();
+  bool edit = cv().editMode();
+  size_t nsel = cv().selectionCount();
+  std::wstring link = cv().contextLink();
   HMENU m = CreatePopupMenu();
   auto add = [&](int id, const wchar_t* t, bool on = true) {
     AppendMenuW(m, MF_STRING | (on ? MF_ENABLED : MF_GRAYED), (UINT_PTR)id, t);
@@ -1750,7 +1782,7 @@ void canvasContextMenu(POINT screen) {
     sep();
     add(IDM_EDIT_FRONT, L"Bring to Front");
     add(IDM_EDIT_BACK, L"Send to Back");
-    if (nsel == 1 && g.canvas.contextOnTable()) {
+    if (nsel == 1 && cv().contextOnTable()) {
       HMENU tm = CreatePopupMenu();
       AppendMenuW(tm, MF_STRING, IDM_TBL_ROW_ABOVE, L"Insert Row Above");
       AppendMenuW(tm, MF_STRING, IDM_TBL_ROW_BELOW, L"Insert Row Below");
@@ -1762,7 +1794,7 @@ void canvasContextMenu(POINT screen) {
       sep();
       AppendMenuW(m, MF_POPUP, (UINT_PTR)tm, L"Table");
     }
-    if (g.canvas.selectionHasText()) {
+    if (cv().selectionHasText()) {
       HMENU f = CreatePopupMenu();
       AppendMenuW(f, MF_STRING, IDM_FMT_BOLD, L"Bold\tCtrl+B");
       AppendMenuW(f, MF_STRING, IDM_FMT_ITALIC, L"Italic\tCtrl+I");
@@ -1802,7 +1834,7 @@ int currentPageIndex() {
   if (!g.doc) return -1;
   const auto& ps = g.doc->pages();
   for (size_t i = 0; i < ps.size(); ++i)
-    if (ps[i].id == g.canvas.pageId()) return (int)i;
+    if (ps[i].id == cv().pageId()) return (int)i;
   return -1;
 }
 
@@ -1830,7 +1862,7 @@ void cmdTagMenu() {
 void cmdMovePage(int delta) {
   int i = currentPageIndex();
   if (i < 0) return;
-  g.doc->movePage(g.canvas.pageId(), i + delta);  // no-op at either end
+  g.doc->movePage(cv().pageId(), i + delta);  // no-op at either end
 }
 
 // The list shows the real order only when no search filter is active.
@@ -1921,7 +1953,7 @@ LRESULT CALLBACK searchProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_
   if (m == WM_KEYDOWN) {
     if (w == VK_ESCAPE) {
       SetWindowTextW(h, L"");
-      SetFocus(g.canvas.hwnd());
+      SetFocus(cv().hwnd());
       return 0;
     }
     if (w == VK_RETURN || w == VK_DOWN) {
@@ -1940,6 +1972,53 @@ bool overSplitter(int x) {
   GetClientRect(g.hwnd, &rc);
   int lw = leftWidth(rc);
   return x >= lw && x < lw + S(5);
+}
+
+// ------------------------------------------------------------------ split view
+
+void wirePane(Canvas& c) {
+  c.onContextMenu = [](POINT p) { canvasContextMenu(p); };
+  c.onNavigate = [](int64_t id) { navigate(id, true); };
+  c.onStateChanged = [] { updateStatus(); };
+  c.onOpenLink = [](const std::wstring& t) { openLink(t); };
+  Canvas* self = &c;
+  c.onActivate = [self] { activatePane(self); };
+}
+
+void activatePane(Canvas* c) {
+  if (g.active == c) return;
+  g.active = c;
+  g.canvas.setMarked(g.split && c == &g.canvas);
+  if (g.canvas2.hwnd()) g.canvas2.setMarked(g.split && c == &g.canvas2);
+  if (g.doc) {
+    refreshPageList();
+    refreshBacklinks();
+  }
+  updateTitle();
+  updateStatus();
+}
+
+void setSplit(bool on) {
+  if (!g.hwnd || !g.doc) return;
+  if (on && !g.canvas2.hwnd()) {
+    g.canvas2.create(g.hwnd, IDC_CANVAS2, g.hi);
+    wirePane(g.canvas2);
+    g.canvas2.setDocument(g.doc.get());
+    g.canvas2.setEditMode(false);  // the second pane starts as a reading pane
+    g.canvas2.setSnap(g.canvas.snap());
+  }
+  g.split = on;
+  if (on) {
+    g.canvas2.setPage(g.canvas.pageId());
+    g.canvas.setMarked(g.active == &g.canvas);
+    g.canvas2.setMarked(g.active == &g.canvas2);
+  } else {
+    g.canvas.setMarked(false);
+    if (g.canvas2.hwnd()) g.canvas2.setMarked(false);
+    activatePane(&g.canvas);
+  }
+  layout();
+  updateStatus();
 }
 
 LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -1968,11 +2047,9 @@ LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       createToolbar();
       createFKeys();
       g.canvas.create(h, IDC_CANVAS, hi);
+      wirePane(g.canvas);
       g.canvas.onContextMenu = [](POINT p) { canvasContextMenu(p); };
       SetTimer(h, 77, 150, nullptr);  // keeps toolbar enable/check state in step with undo, clipboard, etc.
-      g.canvas.onNavigate = [](int64_t id) { navigate(id, true); };
-      g.canvas.onStateChanged = [] { updateStatus(); };
-      g.canvas.onOpenLink = [](const std::wstring& t) { openLink(t); };
       g.canvas.setEditMode(g.startEdit);
       g.canvas.setSnap(g.startSnap);
       rebuildFont();
@@ -2010,11 +2087,12 @@ LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       createToolbar();
       rebuildFont();
       g.canvas.onDpiChanged();
+      if (g.canvas2.hwnd()) g.canvas2.onDpiChanged();
       layout();
       return 0;
     }
     case WM_SETFOCUS:
-      SetFocus(g.canvas.hwnd());
+      SetFocus(cv().hwnd());
       return 0;
     case WM_ERASEBKGND: {
       RECT rc;
@@ -2076,6 +2154,7 @@ LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       return 0;
     case WM_DESTROY:
       g.canvas.setDocument(nullptr);
+      if (g.canvas2.hwnd()) g.canvas2.setDocument(nullptr);
       g.doc.reset();
       PostQuitMessage(0);
       return 0;
@@ -2147,7 +2226,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int nShow) {
 
   ShowWindow(g.hwnd, readIniInt(L"max", 0) ? SW_SHOWMAXIMIZED : nShow);
   UpdateWindow(g.hwnd);
-  SetFocus(g.canvas.hwnd());
+  SetFocus(cv().hwnd());
 
   MSG msg;
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -2161,6 +2240,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int nShow) {
     DispatchMessageW(&msg);
   }
   g.canvas.setDocument(nullptr);
+  if (g.canvas2.hwnd()) g.canvas2.setDocument(nullptr);
   g.doc.reset();
   CoUninitialize();
   return (int)msg.wParam;

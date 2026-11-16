@@ -37,7 +37,9 @@ constexpr int kMinSize = 8;
 constexpr COLORREF kAccent = RGB(0x2F, 0x6F, 0xDE);
 
 WNDPROC g_oldEditProc = nullptr;
-bool g_editCell = false;  // the live editor is a table-cell editor (Tab moves between cells)
+// A table-cell editor carries the window property kCellProp (Tab moves between cells). It is per window,
+// not global, because two panes can each have had an editor in the last instant.
+const wchar_t* kCellProp = L"cairnCell";
 bool g_editRich = false;  // the live editor is a RichEdit (text objects), not a plain EDIT
 
 int cpOfByte(const std::string& s, size_t b) { return (int)utf16UnitsBefore(s, b); }
@@ -121,7 +123,7 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       if (g_editRich && ctrl && multi &&
           (w == 'E' || w == 'L' || w == 'R' || w == 'J' || w == '1' || w == '2' || w == '5' || w == 'T'))
         return 0;  // RichEdit's own paragraph shortcuts mean nothing in a Cairn text box
-      if (g_editCell && w == VK_TAB) {
+      if (GetPropW(h, kCellProp) && w == VK_TAB) {
         PostMessageW(parent, WM_EDIT_CELLNAV, (WPARAM)((GetKeyState(VK_SHIFT) & 0x8000) ? -1 : 1), 0);
         return 0;
       }
@@ -146,7 +148,7 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       }
       break;
     case WM_CHAR:  // swallow the characters those keys would otherwise insert/beep
-      if (g_editCell && w == L'\t') return 0;  // Tab is navigation, never a character
+      if (GetPropW(h, kCellProp) && w == L'\t') return 0;  // Tab is navigation, never a character
       if (multi && ctrl && (w == 0x02 || w == 0x09 || w == 0x15 || w == 0x0B || w == 0x18 || w == 0x1D || w == 0x19 || w == 0x1A)) return 0;  // Ctrl+B/I/U/K/Shift+X/]
       if (w == VK_ESCAPE || (w == VK_RETURN && !multi) || (ctrl && (w == 0x0A || w == VK_RETURN)))
         return 0;
@@ -411,12 +413,14 @@ HWND Canvas::create(HWND parent, int id, HINSTANCE hi) {
                           100, 100, parent, (HMENU)(INT_PTR)id, hi, this);
   dpi_ = dpiFor(hwnd_);
   DragAcceptFiles(hwnd_, TRUE);
+  all_.push_back(this);
   return hwnd_;
 }
 
 Canvas::~Canvas() {
-  audioStop();
-  if (!audioDir_.empty()) {  // the temporary copies of embedded clips
+  all_.erase(std::remove(all_.begin(), all_.end(), this), all_.end());
+  if (all_.empty()) audioStop();
+  if (all_.empty() && !audioDir_.empty()) {  // the temporary copies of embedded clips
     std::error_code ec;
     std::filesystem::remove_all(std::filesystem::path(audioDir_), ec);
   }
@@ -1204,7 +1208,7 @@ bool Canvas::beginCellEdit(const Object& o, size_t row, size_t col) {
   if (!editWnd_) return false;
   editRich_ = false;
   g_editRich = false;
-  g_editCell = true;
+  SetPropW(editWnd_, kCellProp, (HANDLE)1);
   editIsText_ = false;
   editId_ = o.id;
   editRow_ = (int)row;
@@ -1346,7 +1350,6 @@ void Canvas::endEdit(bool commit, bool refocus) {
   if (editRow_ >= 0) {  // a table cell
     size_t row = (size_t)editRow_, col = (size_t)editCol_;
     editRow_ = editCol_ = -1;
-    g_editCell = false;
     if (commit && doc_)
       if (const Object* o = doc_->object(id)) {
         Table t = parseTable(o->prop("data"));
@@ -1997,6 +2000,14 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
       PAINTSTRUCT ps;
       HDC dc = BeginPaint(hwnd_, &ps);
       paint(dc);
+      if (marked_) {  // split view: the pane that commands go to
+        RECT cr;
+        GetClientRect(hwnd_, &cr);
+        HBRUSH mb = CreateSolidBrush(RGB(0x2F, 0x6F, 0xDE));
+        RECT top{cr.left, cr.top, cr.right, cr.top + 3};
+        FillRect(dc, &top, mb);
+        DeleteObject(mb);
+      }
       EndPaint(hwnd_, &ps);
       return 0;
     }
@@ -2088,7 +2099,10 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
       if (onContextMenu) onContextMenu(scr);
       return 0;
     }
-    case WM_LBUTTONDOWN: onLButtonDown((short)LOWORD(l), (short)HIWORD(l), w); return 0;
+    case WM_SETFOCUS:
+      if (onActivate) onActivate();
+      break;
+    case WM_LBUTTONDOWN: if (onActivate) onActivate(); onLButtonDown((short)LOWORD(l), (short)HIWORD(l), w); return 0;
     case WM_LBUTTONDBLCLK: onDoubleClick((short)LOWORD(l), (short)HIWORD(l)); return 0;
     case WM_LBUTTONUP: onLButtonUp((short)LOWORD(l), (short)HIWORD(l)); return 0;
     case WM_MOUSEMOVE: onMouseMove((short)LOWORD(l), (short)HIWORD(l), w); return 0;
@@ -2605,7 +2619,7 @@ void Canvas::audioStop() {
   audioObj_ = 0;  // first: the "aborted" notification this causes must find nothing to do
   mciSendStringW((std::wstring(L"stop ") + kAlias).c_str(), nullptr, 0, nullptr);
   mciSendStringW((std::wstring(L"close ") + kAlias).c_str(), nullptr, 0, nullptr);
-  if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+  for (Canvas* c : all_) if (c->hwnd_) InvalidateRect(c->hwnd_, nullptr, FALSE);
 }
 
 void Canvas::audioNotify(WPARAM w) {

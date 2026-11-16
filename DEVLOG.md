@@ -783,6 +783,37 @@ temp copy and opens it, and looping does not spin the CPU. Wine has no sound dev
 have not heard anything play. That needs a real Windows machine, and that is the first
 thing to try when you test this release.
 
+## Entry 25: two panes
+
+The "dual pane" item on my list is really "see two pages at once". I considered a
+cheap read-only second view, but the useful case is copying between pages and
+editing one while reading the other, so I went for a second full canvas. That sounded
+like a rewrite, and mostly was not. The canvas was already a self-contained class
+over a shared `Document` (all state like selection and zoom is per canvas, all content
+and undo is in the document), so a second instance just works. The main window had
+103 direct uses of `g.canvas`; those now go through `cv()`, which returns the active
+pane, and a handful of places that mean "every pane" (document change, document swap,
+DPI change) were handled by hand. The active pane is whichever was last clicked or
+focused, marked with a thin blue bar. The page list, backlinks, title and status bar
+follow it.
+
+Things that had to change because there were suddenly two of everything:
+- The table-cell editor's "Tab means navigate" flag was a global; it is now a property
+  of the editor window, so one pane's editor closing cannot switch off the other's.
+- Audio state is per process (MCI has one device alias), so it is shared by both panes
+  and both repaint when a clip starts or stops; before this, the second pane could never
+  have started a clip while the first one was playing.
+- If the page shown in the other pane is deleted, that pane falls back to the first page
+  instead of showing nothing.
+
+Not done: the split is not remembered between sessions, the divider is fixed at
+half and cannot be dragged, and back/forward history is shared rather than per pane.
+
+Verified: 423 core checks (nothing in the core changed); under Wine, Ctrl+\ splits the view,
+clicking the right pane makes it active, choosing a page in the list loaded it into the right
+pane only, and Ctrl+E switched only the right pane to Edit mode. I did not test editing the
+same page in both panes at once, or dragging objects between panes.
+
 ### TODO
 
 - Dark mode.

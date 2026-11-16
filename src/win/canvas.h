@@ -51,6 +51,7 @@ class Canvas {
   void sendToBack();
   void editProperties();  // selected object, or the page when nothing is selected
   void beginTextEdit();
+  void setMarked(bool m) { marked_ = m; if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE); }
   bool beginCellEdit(const Object& o, size_t row, size_t col);  // type straight into one table cell
   void cellNavigate(int dir);                                   // Tab / Shift+Tab inside a cell editor
   bool contextOnTable() const;                                  // is the right-click point on a table cell?
@@ -87,6 +88,7 @@ class Canvas {
 
   std::function<void(int64_t)> onNavigate;  // a button was clicked in Run mode
   std::function<void(const std::wstring&)> onOpenLink;  // a button with a file/URL was clicked
+  std::function<void()> onActivate;         // this pane was clicked or got focus (split view)
   std::function<void()> onStateChanged;     // selection, zoom, mode or snap changed
 
  private:
@@ -171,10 +173,13 @@ class Canvas {
   void audioNotify(WPARAM w);         // MM_MCINOTIFY: the clip finished (loop it) or was stopped
   void audioAutoplay();               // Run mode: start the first "play when the page opens" clip
   bool addAudioBytes(const std::string& bytes, const std::string& name, int px, int py);
-  int64_t audioObj_ = 0;
-  bool audioLoop_ = false;
-  DWORD audioTick_ = 0;  // when the current pass started: a clip that "ends" at once must not loop forever
-  std::wstring audioDir_;
+  bool marked_ = false;
+  // Sound is per process (one MCI device alias), so its state is shared by every pane.
+  static inline int64_t audioObj_ = 0;
+  static inline bool audioLoop_ = false;
+  static inline DWORD audioTick_ = 0;  // when the current pass started: a clip that "ends" at once must not loop forever
+  static inline std::wstring audioDir_;
+  static inline std::vector<Canvas*> all_;  // every live pane, so a playing clip can repaint all of them
   std::string withWikiRuns(const Object& o) const;
   struct FolderEntry { std::wstring name; bool dir; };
   struct FolderCache { std::wstring path; DWORD tick = 0; std::vector<FolderEntry> items; bool ok = false; };

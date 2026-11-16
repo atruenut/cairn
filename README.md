@@ -78,6 +78,13 @@ it this way. The brackets stay in the text. Renaming a page rewrites `[[links]]`
 export turns them into real links between pages; Markdown export keeps them as `[[Title]]`, which other
 note tools understand.
 
+**Split view.** View > Split View (Ctrl+\) shows two pages side by side. Each pane has its own page, its own
+Edit/Run mode and its own zoom, and it is a full pane: you can edit in either. Commands, the toolbar, the page
+list and the status bar follow the pane you last clicked, which is marked with a blue bar along its top. Click a
+page in the list to load it into the active pane. Handy for reading one page while writing another, or for
+copying objects between pages with Ctrl+C / Ctrl+V. The second pane starts in Run mode; it is not remembered
+between sessions.
+
 **Audio.** Edit > Add Audio (or drop a file on the page) embeds a WAV, MP3, M4A, WMA or MIDI clip in the file.
 In Run mode, click it to play and click again to stop; only one plays at a time. Properties has Loop and "Play
 when the page opens". Playback goes through Windows' own media codecs, so a format your Windows can't decode
@@ -125,7 +132,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.18.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.19.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 
