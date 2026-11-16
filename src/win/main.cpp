@@ -21,6 +21,7 @@
 #include "canvas.h"
 #include "document.h"
 #include "export.h"
+#include "markdown.h"
 #include "propform.h"
 #include "rich.h"
 
@@ -30,14 +31,14 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.10.0";
+constexpr const char* kVersion = "0.11.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
 enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_STATUS, IDC_LINKLABEL,
 
-  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXIT,
+  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
@@ -462,6 +463,65 @@ void cmdExportSite() {
   }
 }
 
+bool pickMarkdown(bool save, std::wstring& out) {
+  wchar_t buf[1024] = {};
+  OPENFILENAMEW ofn{};
+  ofn.lStructSize = sizeof ofn;
+  ofn.hwndOwner = g.hwnd;
+  ofn.lpstrFilter = L"Markdown (*.md)\0*.md;*.markdown;*.txt\0All files (*.*)\0*.*\0";
+  ofn.lpstrFile = buf;
+  ofn.nMaxFile = 1023;
+  ofn.lpstrDefExt = L"md";
+  ofn.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | (save ? 0 : OFN_FILEMUSTEXIST);
+  if (!(save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn))) return false;
+  out = buf;
+  return true;
+}
+
+// Text-only Markdown: one "# heading" per page. Never overwrites an existing file.
+void cmdExportMarkdown() {
+  if (!g.doc) return;
+  std::wstring p;
+  if (!pickMarkdown(true, p)) return;
+  namespace fs = std::filesystem;
+  if (fs::exists(fs::path(p))) {
+    showError(L"That file already exists. Pick a new name; Cairn never overwrites on its own.");
+    return;
+  }
+  std::string md = exportMarkdown(*g.doc);
+  std::ofstream out(fs::path(p), std::ios::binary);
+  out.write(md.data(), (std::streamsize)md.size());
+  if (!out) {
+    showError(L"Couldn't write that file.");
+    return;
+  }
+  MessageBoxW(g.hwnd, L"Exported the text of every page.\n\nImages and rectangles are not included.", kAppName,
+              MB_OK | MB_ICONINFORMATION);
+}
+
+// Each "# heading" becomes a page; everything lands as one undo step per page.
+void cmdImportMarkdown() {
+  if (!g.doc) return;
+  std::wstring p;
+  if (!pickMarkdown(false, p)) return;
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  auto sz = fs::file_size(fs::path(p), ec);
+  if (ec || sz > (2u << 20)) {
+    showError(L"That file is too large to import (the limit is 2 MB).");
+    return;
+  }
+  std::ifstream in(fs::path(p), std::ios::binary);
+  std::string md((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  if (md.compare(0, 3, "\xEF\xBB\xBF") == 0) md.erase(0, 3);
+  MdImportResult r = importMarkdown(*g.doc, md, narrow(fs::path(p).stem().wstring()));
+  if (!r.pages) {
+    showError(L"Nothing to import: the file has no text.");
+    return;
+  }
+  navigate(r.firstPage, true);
+}
+
 // Find & replace over the text of text objects and button labels. Always shows what it is about
 // to do (a dry run) and asks before changing anything; the whole replace is one undo step.
 void cmdReplace() {
@@ -824,6 +884,8 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_FILE_OPEN, L"Open Cairn File", L"Ctrl+O"},
     {IDM_FILE_SAVECOPY, L"Save a Copy As", L""},
     {IDM_FILE_EXPORT, L"Export as Website...", L""},
+    {IDM_FILE_EXPORTMD, L"Export as Markdown...", L""},
+    {IDM_FILE_IMPORTMD, L"Import Markdown...", L""},
     {IDM_HELP_ABOUT, L"About Cairn", L""},
 };
 
@@ -1021,6 +1083,8 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_FILE_OPEN: cmdOpen(); break;
       case IDM_FILE_SAVECOPY: cmdSaveCopy(); break;
       case IDM_FILE_EXPORT: cmdExportSite(); break;
+      case IDM_FILE_EXPORTMD: cmdExportMarkdown(); break;
+      case IDM_FILE_IMPORTMD: cmdImportMarkdown(); break;
       case IDM_FILE_EXIT: SendMessageW(g.hwnd, WM_CLOSE, 0, 0); break;
 
       case IDM_EDIT_UNDO: if (g.doc) g.doc->undo(); break;
@@ -1135,6 +1199,8 @@ HMENU buildMenu() {
   add(file, IDM_FILE_OPEN, L"&Open...\tCtrl+O");
   add(file, IDM_FILE_SAVECOPY, L"Save a &Copy As...");
   add(file, IDM_FILE_EXPORT, L"&Export as Website...");
+  add(file, IDM_FILE_EXPORTMD, L"Export as &Markdown...");
+  add(file, IDM_FILE_IMPORTMD, L"&Import Markdown...");
   sep(file);
   add(file, IDM_FILE_EXIT, L"E&xit");
   AppendMenuW(bar, MF_POPUP, (UINT_PTR)file, L"&File");
@@ -1274,6 +1340,8 @@ void updateMenuState() {
   en(IDM_EDIT_SELECTALL, edit);
   en(IDM_FILE_SAVECOPY, has);
   en(IDM_FILE_EXPORT, has);
+  en(IDM_FILE_EXPORTMD, has);
+  en(IDM_FILE_IMPORTMD, has);
   {
     int ci = currentPageIndex();
     en(IDM_PAGE_MOVEUP, ci > 0);

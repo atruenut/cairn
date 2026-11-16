@@ -558,6 +558,36 @@ Honest limits:
   elsewhere and type, the styling is dropped rather than carried along.
 - Wine only.
 
+## Entry 17: a way in and out for plain text
+
+Cairn files are SQLite, which is fine for me and useless for anything else, so I
+added Markdown in both directions. It is text only, on purpose.
+
+Export writes one `# Page title` per page, then its text objects in reading order
+(top to bottom, then left to right). Styled runs become `**bold**`, `*italic*`,
+`~~strike~~`, `` `code` `` and `[text](url)`. Whitespace at the edge of a styled run
+is moved outside the markers, since `** bold**` is not bold in Markdown. Characters
+that would turn into formatting are escaped, so text survives a round trip.
+Underline has no Markdown form and is dropped. Images are written as a placeholder.
+
+Import is the part with decisions in it. Each `# heading` starts a page; text before
+the first one goes on a page named after the file. Paragraphs, list runs, quotes and
+tables become text objects stacked down the page, code fences become monospace, and
+`##` headings become larger bold text. Heights are estimated from line counts, so
+the layout is approximate. Hostile input is handled: a 2 MB cap, bounded search
+windows so an unmatched `[a](` repeated thousands of times cannot go quadratic, a
+nesting limit, and the same link-scheme filter as everywhere else.
+
+I added `Document::addPageWithObjects` so a page and its contents are one undo step.
+
+Two of my own mistakes in the tests are worth noting: I used the wrong separator
+in the run encoding (the test silently had no runs and so checked nothing useful),
+and my first link parser stopped at the first `)`, which cut
+`[x](javascript:alert(1))` in half. Targets now allow balanced parentheses.
+
+Verified: 330 core checks natively. The menu commands compile but I have not driven
+the file dialogs under Wine, so the UI side of this is untested.
+
 ### TODO
 
 - Dark mode.

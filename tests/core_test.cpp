@@ -7,6 +7,7 @@
 #include "document.h"
 #include "rich.h"
 #include "export.h"
+#include "markdown.h"
 #include "urls.h"
 #include "sha256.h"
 
@@ -914,6 +915,64 @@ static void testTags() {
   std::filesystem::remove(path);
 }
 
+static void testMarkdown() {
+  std::printf("markdown\n");
+  using namespace cairn;
+  MdInline a = parseMarkdownInline("a **b** *c* ~~d~~ `e` [f](https://x.org/y) g");
+  CHECK(a.text == "a b c d e f g");
+  CHECK(rangeAllHave(a.runs, 2, 3, kBold) && rangeAllHave(a.runs, 4, 5, kItalic));
+  CHECK(rangeAllHave(a.runs, 6, 7, kStrike) && rangeAllHave(a.runs, 8, 9, kMono));
+  CHECK(!rangeAllHave(a.runs, 0, 2, kBold));
+  bool hasUrl = false;
+  for (const Run& r : a.runs) if (r.url == "https://x.org/y") hasUrl = true;
+  CHECK(hasUrl);
+  CHECK(parseMarkdownInline("2 * 3 * 4").text == "2 * 3 * 4");          // spaces: not emphasis
+  CHECK(parseMarkdownInline("snake_case_name").runs.empty());            // intraword underscores
+  CHECK(parseMarkdownInline("**open").text == "**open");                 // unmatched stays literal
+  CHECK(parseMarkdownInline("\\*not\\*").text == "*not*");
+  CHECK(parseMarkdownInline("![pic](http://x/y.png)").text == "[image: pic]");
+  MdInline bad = parseMarkdownInline("[click](javascript:alert(1)) done");
+  bool anyUrl = false;
+  for (const Run& r : bad.runs) if (!r.url.empty()) anyUrl = true;
+  CHECK(!anyUrl && bad.text == "click done");                            // unsafe scheme dropped
+  CHECK(rangeAllHave(parseMarkdownInline("***x***").runs, 0, 1, kBold | kItalic));
+  // Hostile: deep nesting and long unmatched runs terminate.
+  std::string deep(5000, '*');
+  CHECK(parseMarkdownInline(deep).text.size() <= 5000);  // terminates quickly
+  std::string br;
+  for (int i = 0; i < 3000; ++i) br += "[a](";
+  CHECK(!parseMarkdownInline(br).text.empty());
+
+  // Round trip through export syntax.
+  std::string t = "plain bold it\nsecond *star*";
+  Runs r = decodeRuns("6,4,1,,,|11,2,2,,,", t.size());
+  MdInline rt = parseMarkdownInline(richToMarkdown(t, r));
+  CHECK(rt.text == t);
+  CHECK(rangeAllHave(rt.runs, 6, 10, kBold) && rangeAllHave(rt.runs, 11, 13, kItalic));
+  CHECK(richToMarkdown("# not a heading", Runs()) == "\\# not a heading");
+  CHECK(richToMarkdown("1. no list", Runs()) == "1\\. no list");
+
+  // Import / export on a real document.
+  std::string path = tmpPath("md.cairn");
+  auto doc = Document::create(path, false);
+  std::string src = "intro line\n\n# First\nTags: alpha, beta\n\nSome **bold** text.\n\n- one\n- two\n\n## Sub\n\n```\ncode here\n```\n\n# Second\n\nhi\n";
+  size_t before = doc->pages().size();
+  MdImportResult res = importMarkdown(*doc, src, "Imported");
+  CHECK(res.pages == 3 && doc->pages().size() == before + 3);
+  const Page* p1 = doc->page(res.firstPage + 1);
+  CHECK(p1 && p1->title == "First" && p1->tags == "alpha, beta");
+  CHECK(p1 && p1->objects.size() == 4);
+  CHECK(doc->undo());  // one undo removes only the last imported page
+  CHECK(doc->pages().size() == before + 2);
+  doc->redo();
+  std::string md = exportMarkdown(*doc);
+  CHECK(md.find("# First") != std::string::npos && md.find("**bold**") != std::string::npos);
+  CHECK(md.find("Tags: alpha, beta") != std::string::npos);
+  CHECK(importMarkdown(*doc, std::string(3u << 20, 'x'), "Big").pages == 0);  // oversize ignored
+  CHECK(importMarkdown(*doc, "", "Empty").pages == 0);
+  std::remove(path.c_str());
+}
+
 int main() {
   testTags();
   testRichRuns();
@@ -925,6 +984,7 @@ int main() {
   testTypingStyle();
   testExportSite();
   testReplace();
+  testMarkdown();
   testPageOrder();
   testUrls();
   testProps();

@@ -44,6 +44,9 @@ class Document {
   // Every tag in use with its page count, sorted by name (case-insensitive).
   std::vector<std::pair<std::string, int>> allTags() const;
   bool deletePage(int64_t id);  // refuses to delete the last page
+  // A new page with its objects, as ONE undo step ("Import"). Returns the page id.
+  int64_t addPageWithObjects(const std::string& title, int w, int h, const std::string& tags,
+                             std::vector<Object> protos, const char* label = "Add Page");
   // Moves a page to position `newIndex` (0-based, clamped) in the page order. One undo step.
   // Returns false if the page is unknown or already there.
   bool movePage(int64_t id, int newIndex);

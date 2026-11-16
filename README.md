@@ -70,6 +70,11 @@ right words, and the whole replace is a single undo step.
 Cairn page with objects in their places, the images, and working page-to-page buttons). No scripts; web links
 are kept, buttons that open local files are not. It never writes into an existing folder.
 
+**Markdown.** File > Export as Markdown writes the text of every page (one `# heading` per page, bold/italic/
+strikethrough/code/links kept). File > Import Markdown turns a `.md` file into pages: each `# heading` starts a
+page, paragraphs, lists, quotes and code blocks become text objects, and it is one undo step per page. Text only;
+images are not exported and imports never fetch anything. Unsafe link schemes are dropped.
+
 **Copy out.** Copying styled text puts HTML on the clipboard too, so bold, colours, sizes and links
 survive pasting into Word, mail clients and web editors.
 
@@ -93,7 +98,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.10.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.11.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

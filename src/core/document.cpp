@@ -454,6 +454,32 @@ int64_t Document::addPage(const std::string& title) {
   return p.id;
 }
 
+int64_t Document::addPageWithObjects(const std::string& title, int w, int h, const std::string& tags,
+                                     std::vector<Object> protos, const char* label) {
+  Page p;
+  p.id = nextPageId_++;
+  p.title = title.empty() ? "Untitled" : title;
+  p.w = std::clamp(w, 200, 8000);
+  p.h = std::clamp(h, 200, 8000);
+  p.tags = normalizeTags(tags);
+  p.sort = 0;
+  for (const Page& q : pages_) p.sort = std::max(p.sort, q.sort + 1);
+  p.created = p.modified = (int64_t)std::time(nullptr);
+  UndoEntry e;
+  e.label = label;
+  e.pages.push_back({std::nullopt, p});
+  int z = 0;
+  for (Object& o : protos) {
+    o.id = nextObjId_++;
+    o.pageId = p.id;
+    o.z = ++z;
+    e.objs.push_back({std::nullopt, std::move(o)});
+  }
+  int64_t id = p.id;
+  commit(std::move(e));
+  return id;
+}
+
 bool Document::renamePage(int64_t id, const std::string& title) {
   const Page* p = page(id);
   std::string t = title.empty() ? "Untitled" : title;
