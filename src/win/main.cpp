@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.13.0";
+constexpr const char* kVersion = "0.14.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -635,6 +635,12 @@ void openLink(const std::wstring& raw) {
   std::wstring low = t;
   for (wchar_t& c : low) c = (wchar_t)std::towlower(c);
   auto starts = [&](const wchar_t* p) { return low.compare(0, wcslen(p), p) == 0; };
+
+  if (starts(L"cairn-page:")) {  // a [[wiki link]] resolved by the canvas
+    long long id = wcstoll(t.c_str() + 11, nullptr, 10);
+    if (g.doc && id > 0 && g.doc->page(id)) navigate(id, true);
+    return;
+  }
 
   if (starts(L"http://") || starts(L"https://") || starts(L"mailto:")) {
     ShellExecuteW(g.hwnd, L"open", t.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

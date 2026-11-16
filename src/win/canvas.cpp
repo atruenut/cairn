@@ -179,6 +179,32 @@ struct Piece {
   bool space;
 };
 
+}  // namespace
+
+// The stored runs plus a display-only styling of [[wiki links]]: a found page gets a link, a missing one
+// is shown in muted red and does nothing. Nothing here is written back to the document.
+std::string Canvas::withWikiRuns(const Object& o) const {
+  const std::string& text = o.prop("text");
+  std::vector<WikiLink> wl = findWikiLinks(text);
+  if (wl.empty() || !doc_) return o.prop("runs");
+  Runs runs = o.prop("runs").empty() ? Runs{} : decodeRuns(o.prop("runs"), text.size());
+  for (const WikiLink& w : wl) {
+    int64_t id = doc_->pageByTitle(w.title);
+    restyleRange(runs, w.start, w.start + w.len, text.size(), [&](Run& r) {
+      if (id) {
+        r.flags |= kUnderline;
+        r.color = 0x1A55C0;
+        r.url = "cairn-page:" + std::to_string(id);
+      } else {
+        r.color = 0xB04A4A;
+      }
+    });
+  }
+  return encodeRuns(runs);
+}
+
+namespace {
+
 RichModel buildRich(const std::string& utf8, const std::string& runsEnc) {
   RichModel m;
   m.w = widen(utf8);
@@ -618,7 +644,7 @@ void Canvas::drawObject(HDC dc, const Object& o, bool pressed) {
       InflateRect(&tr, -pad, -pad);
       int al = o.propInt("align", 0);
       UINT fl = DT_WORDBREAK | DT_NOPREFIX | DT_TOP | (al == 1 ? DT_CENTER : al == 2 ? DT_RIGHT : DT_LEFT);
-      RichModel rm = buildRich(o.prop("text"), o.prop("runs"));
+      RichModel rm = buildRich(o.prop("text"), withWikiRuns(o));
       if (rm.spans.empty()) {
         std::wstring w = widen(o.prop("text"));
         DrawTextW(dc, w.c_str(), (int)w.size(), &tr, fl);
@@ -891,7 +917,7 @@ FontOf Canvas::richFont(const Object& o) {
 
 std::wstring Canvas::urlAt(const Object& o, int x, int y) {
   if (o.type != ObjType::Text) return L"";
-  RichModel rm = buildRich(o.prop("text"), o.prop("runs"));
+  RichModel rm = buildRich(o.prop("text"), withWikiRuns(o));
   if (rm.links.empty()) return L"";
   RECT r = objRectPx(o);
   int pad = std::max(2, (int)std::lround(4 * scale()));

@@ -251,6 +251,27 @@ void overlayRuns(Runs& base, const Runs& over, size_t offset, size_t overLen, si
   normalizeRuns(base, textLen);
 }
 
+std::vector<WikiLink> findWikiLinks(const std::string& text) {
+  std::vector<WikiLink> out;
+  size_t i = 0;
+  while (out.size() < 500) {
+    size_t a = text.find("[[", i);
+    if (a == std::string::npos) break;
+    size_t b = a + 2;
+    while (b < text.size() && text[b] != ']' && text[b] != '[' && text[b] != '\n' && b - a < 130) ++b;
+    if (b + 1 < text.size() + 0 && text[b] == ']' && text[b + 1] == ']') {
+      size_t ts = a + 2, te = b;
+      while (ts < te && (text[ts] == ' ' || text[ts] == '\t')) ++ts;
+      while (te > ts && (text[te - 1] == ' ' || text[te - 1] == '\t')) --te;
+      if (te > ts && te - ts <= 120) out.push_back({a, b + 2 - a, text.substr(ts, te - ts)});
+      i = b + 2;
+    } else {
+      i = a + 1;
+    }
+  }
+  return out;
+}
+
 std::string sanitizeLinkTarget(const std::string& typed) {
   std::string s = typed;
   while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());

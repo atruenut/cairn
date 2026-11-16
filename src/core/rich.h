@@ -47,6 +47,14 @@ void toggleFlag(Runs& runs, size_t a, size_t b, size_t textLen, unsigned flag);
 // Replaces the styling of [offset, offset+overLen) with `over` (positions relative to 0).
 void overlayRuns(Runs& base, const Runs& over, size_t offset, size_t overLen, size_t textLen);
 
+// Wiki links: [[Page title]] inside text. The brackets stay in the text; this only finds them.
+// A title is 1..120 bytes on one line, trimmed, with no brackets inside. At most 500 per text.
+struct WikiLink {
+  size_t start, len;  // byte range of the whole [[...]]
+  std::string title;
+};
+std::vector<WikiLink> findWikiLinks(const std::string& text);
+
 // A link address typed by a person -> something safe to store, or "" if unacceptable.
 // Accepts http(s)://, mailto:, and bare "www.x.org" / "x.org" (made https). Rejects every
 // other scheme (javascript:, file:, data:, ...), spaces and control characters.

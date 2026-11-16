@@ -638,6 +638,40 @@ show the viewer's own disk).
 Verified: 349 core checks natively; under Wine a table draws with its header
 shading, grid and an escaped bar. I did not drive the edit dialog there.
 
+## Entry 20: [[wiki links]]
+
+Cairn's links so far were buttons, which suits a layout tool but not a note-taking
+one. In a knowledge environment you want to be mid-sentence, type a page's name
+in double brackets and have it be a link.
+
+The design question was where the link lives. I decided it does not live
+anywhere: the text keeps its literal `[[Title]]`, and the link is derived whenever
+the page is drawn. `findWikiLinks` (pure, tested) finds the spans; the canvas looks
+each title up (`Document::pageByTitle`, case-insensitive) and overlays a
+display-only run: underlined blue with an internal `cairn-page:<id>` address if the
+page exists, muted red if not. Nothing is written back, so there is no link table to
+get stale. If you create the missing page later, the red link turns blue by itself.
+Renaming a page breaks references to the old title, which I accept for now.
+
+Backlinks needed the same thing: `backlinks()` now also scans text for mentions
+instead of relying on the stored link table, which only knew about buttons. That is a
+scan over all text per page change, fine at this scale and worth revisiting if a
+document ever gets enormous.
+
+The new internal address cannot come from outside: people can only type
+http/https/mailto links, so `cairn-page:` is only ever produced by the overlay (a hand-edited
+file could carry one, and all that does is navigate to a page that exists).
+Hostile input: 500 links per text, titles capped at 120 bytes, and 5000 unclosed `[[`
+finishes immediately (tested).
+
+I also hit a compile error (`_wtoll` is not in MinGW's headers) that the native
+test build cannot see, since the Windows code is not part of it. It is a reminder to
+always run the full `make`, not just `make test`.
+
+Verified: 363 core checks; under Wine, the existing page's link draws blue, the
+missing one red, and a click navigates and shows up in the target's "Linked from"
+panel.
+
 ### TODO
 
 - Dark mode.

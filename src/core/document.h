@@ -81,7 +81,8 @@ class Document {
   ReplaceResult replaceAll(const std::string& find, const std::string& repl, bool matchCase,
                            int64_t onlyPage, bool dryRun);
   // Pages whose buttons point at `pageId`.
-  std::vector<std::pair<int64_t, std::string>> backlinks(int64_t pageId) const;
+  std::vector<std::pair<int64_t, std::string>> backlinks(int64_t pageId) const;  // buttons and [[wiki links]]
+  int64_t pageByTitle(const std::string& title) const;  // ASCII case-insensitive, 0 if none
 
   // Writes a consistent copy of the whole file to `path` (fails if it exists).
   void saveCopy(const std::string& path) const;

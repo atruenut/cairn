@@ -709,9 +709,33 @@ std::vector<std::pair<int64_t, std::string>> Document::backlinks(int64_t pageId)
   s.bindInt(1, pageId);
   std::set<int64_t> ids;
   while (s.step()) ids.insert(s.colInt(0));
+  const Page* me = page(pageId);
+  if (me) {  // [[Title]] mentions: scanned, so a link made before its page existed still counts
+    for (const Page& p : pages_) {
+      if (ids.count(p.id) || p.id == pageId) continue;
+      for (const Object& o : p.objects) {
+        if (o.type != ObjType::Text) continue;
+        bool hit = false;
+        for (const WikiLink& w : findWikiLinks(o.prop("text")))
+          if (pageByTitle(w.title) == pageId) { hit = true; break; }
+        if (hit) { ids.insert(p.id); break; }
+      }
+    }
+  }
   for (const Page& p : pages_)
     if (ids.count(p.id) && p.id != pageId) out.emplace_back(p.id, p.title);
   return out;
+}
+
+int64_t Document::pageByTitle(const std::string& title) const {
+  auto fold = [](std::string s) {
+    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+  };
+  std::string want = fold(title);
+  for (const Page& p : pages_)
+    if (fold(p.title) == want) return p.id;
+  return 0;
 }
 
 void Document::saveCopy(const std::string& path) const {

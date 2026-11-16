@@ -1023,6 +1023,40 @@ static void testTables() {
   std::remove(path.c_str());
 }
 
+static void testWikiLinks() {
+  std::printf("wiki links\n");
+  using namespace cairn;
+  auto w = findWikiLinks("see [[Alpha]] and [[ Beta page ]] ok");
+  CHECK(w.size() == 2 && w[0].title == "Alpha" && w[1].title == "Beta page");
+  CHECK(w[0].start == 4 && w[0].len == 9);
+  CHECK(findWikiLinks("[[]] [[  ]] [[a\nb]] [[open").empty());
+  CHECK(findWikiLinks("[[a[b]]").size() == 0 && findWikiLinks("[[[x]]]").size() == 1);
+  CHECK(findWikiLinks("[[x]]")[0].title == "x");
+  CHECK(findWikiLinks("[[" + std::string(200, 'z') + "]]").empty());       // title too long
+  std::string many;
+  for (int i = 0; i < 2000; ++i) many += "[[a]]";
+  CHECK(findWikiLinks(many).size() == 500);
+  std::string unclosed;
+  for (int i = 0; i < 5000; ++i) unclosed += "[[";
+  CHECK(findWikiLinks(unclosed).empty());  // finishes, no quadratic blowup
+  CHECK(findWikiLinks("[[h\xC3\xA9llo]]")[0].title == "h\xC3\xA9llo");
+
+  std::string path = tmpPath("wiki.cairn");
+  auto doc = Document::create(path, false);
+  int64_t pa = doc->addPage("Alpha"), pb = doc->addPage("Beta Notes");
+  doc->addObject(pa, textObj(10, 10, "go to [[beta notes]] now"));
+  CHECK(doc->pageByTitle("BETA NOTES") == pb && doc->pageByTitle("nope") == 0);
+  auto bl = doc->backlinks(pb);
+  CHECK(bl.size() == 1 && bl[0].first == pa);
+  CHECK(doc->backlinks(pa).empty());
+  int64_t pc = doc->addPage("Gamma");
+  doc->addObject(pc, textObj(10, 10, "[[Gamma]] self and [[Missing]]"));
+  CHECK(doc->backlinks(pc).empty());  // a page linking to itself isn't its own backlink
+  doc->renamePage(pb, "Renamed");
+  CHECK(doc->backlinks(pb).empty());  // the mention no longer resolves
+  std::remove(path.c_str());
+}
+
 int main() {
   testTags();
   testRichRuns();
@@ -1036,6 +1070,7 @@ int main() {
   testReplace();
   testMarkdown();
   testTables();
+  testWikiLinks();
   testPageOrder();
   testUrls();
   testProps();
