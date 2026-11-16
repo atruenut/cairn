@@ -481,7 +481,8 @@ int64_t Document::addPageWithObjects(const std::string& title, int w, int h, con
   return id;
 }
 
-bool Document::renamePage(int64_t id, const std::string& title) {
+bool Document::renamePage(int64_t id, const std::string& title, int* linksUpdated) {
+  if (linksUpdated) *linksUpdated = 0;
   const Page* p = page(id);
   std::string t = title.empty() ? "Untitled" : title;
   if (!p || p->title == t) return false;
@@ -490,7 +491,37 @@ bool Document::renamePage(int64_t id, const std::string& title) {
   UndoEntry e;
   e.label = "Rename Page";
   e.pages.push_back({headerOnly(*p), after});
+
+  bool writable = t.size() <= 120 && t.find_first_of("[]\r\n") == std::string::npos &&
+                  t.find_first_not_of(" \t") != std::string::npos;
+  int rewritten = 0;
+  if (writable) {
+    for (const Page& pg : pages_) {
+      for (const Object& o : pg.objects) {
+        if (o.type != ObjType::Text) continue;
+        std::string text = o.prop("text");
+        std::vector<WikiLink> wl = findWikiLinks(text);
+        bool any = false;
+        for (const WikiLink& w : wl) if (pageByTitle(w.title) == id) { any = true; break; }
+        if (!any) continue;
+        Runs runs = decodeRuns(o.prop("runs"), text.size());
+        for (size_t k = wl.size(); k-- > 0;) {  // back to front so earlier offsets stay valid
+          if (pageByTitle(wl[k].title) != id) continue;
+          std::string next = text;
+          next.replace(wl[k].start, wl[k].len, "[[" + t + "]]");
+          shiftRunsForEdit(runs, text, next);
+          text = std::move(next);
+          ++rewritten;
+        }
+        Object a = o;
+        a.setProp("text", text);
+        a.setProp("runs", encodeRuns(runs));
+        e.objs.push_back({o, a});
+      }
+    }
+  }
   commit(std::move(e));
+  if (linksUpdated) *linksUpdated = rewritten;
   return true;
 }
 

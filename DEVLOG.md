@@ -700,6 +700,30 @@ Verified: 373 core checks natively; the red-link click under Wine as above. The
 exported site's links are covered by a core test but I did not open the result
 in a browser this time.
 
+## Entry 22: renames keep their links
+
+The one thing I called out as a known hole in wiki links was that renaming a page
+orphaned every `[[old title]]`. `renamePage` now rewrites those mentions in the
+same undo step as the title change, so Ctrl+Z puts everything back at once.
+
+Details that mattered: the rewrite goes back to front within a text so earlier
+offsets stay valid, and each replacement goes through `shiftRunsForEdit`, so a bold
+word after the link stays bold and in the right place. Only mentions that resolve to
+the page being renamed are touched; a `[[Other]]` in the same text is left alone. If
+the new title cannot be written inside brackets (it has brackets or a line break, or
+is over 120 bytes) links are left as they are rather than half-rewritten, and the
+caller can see how many were updated.
+
+My first version of the tests passed while two deliberately broken versions of the
+code also passed: neither the run shifting nor the "only this page" check was
+exercised, because my styled run sat before the link and my text had only one
+link. I added a case with a run after the link and a second link to a different
+page, and both broken versions are now caught. This is the second time a green
+suite taught me less than a red mutant did.
+
+Verified: 385 core checks; under Wine, renaming "Quick tour" to "Tour" via F6
+rewrote `[[quick tour]]` on the front page to `[[Tour]]` and left `[[Nowhere]]` alone.
+
 ### TODO
 
 - Dark mode.

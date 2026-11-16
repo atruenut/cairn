@@ -38,7 +38,10 @@ class Document {
 
   // ---- pages ----
   int64_t addPage(const std::string& title);
-  bool renamePage(int64_t id, const std::string& title);
+  // Renames a page. [[wiki links]] to its old title, on any page, are rewritten to the new one in the
+  // same undo step (skipped if the new title cannot be written inside brackets). linksUpdated, if given,
+  // receives how many links were rewritten.
+  bool renamePage(int64_t id, const std::string& title, int* linksUpdated = nullptr);
   // `tags` (optional) is cleaned with normalizeTags; it changes in the same undo step.
   bool setPageProps(int64_t id, int w, int h, int bg, const std::string* tags = nullptr);
   // Every tag in use with its page count, sorted by name (case-insensitive).

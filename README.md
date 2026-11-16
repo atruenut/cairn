@@ -73,7 +73,8 @@ are kept, buttons that open local files are not. It never writes into an existin
 **Wiki links.** Type `[[Page title]]` in any text object. In Run mode it is a blue underlined link to the page
 with that title (case-insensitive). If no page has that title it shows in muted red, and clicking it creates the
 page (one undo step) and goes there. The target page's "Linked from this page" list includes pages that mention
-it this way. The brackets stay in the text, and renaming a page breaks links that used the old name. The website
+it this way. The brackets stay in the text. Renaming a page rewrites `[[links]]` to it on every page, in the same undo step
+(unless the new title contains brackets). The website
 export turns them into real links between pages; Markdown export keeps them as `[[Title]]`, which other
 note tools understand.
 
@@ -115,7 +116,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.15.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.16.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

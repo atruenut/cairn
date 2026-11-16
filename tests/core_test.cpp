@@ -1052,9 +1052,48 @@ static void testWikiLinks() {
   int64_t pc = doc->addPage("Gamma");
   doc->addObject(pc, textObj(10, 10, "[[Gamma]] self and [[Missing]]"));
   CHECK(doc->backlinks(pc).empty());  // a page linking to itself isn't its own backlink
-  doc->renamePage(pb, "Renamed");
-  CHECK(doc->backlinks(pb).empty());  // the mention no longer resolves
+  int upd = -1;
+  doc->renamePage(pb, "Renamed", &upd);
+  CHECK(upd == 1);
+  CHECK(doc->backlinks(pb).size() == 1);  // the mention followed the rename
+  {
+    const Object& to = doc->page(pa)->objects[0];
+    CHECK(to.prop("text") == "go to [[Renamed]] now");
+  }
+  CHECK(doc->undo());  // one step undoes the title and the text together
+  CHECK(doc->page(pb)->title == "Beta Notes" && doc->page(pa)->objects[0].prop("text") == "go to [[beta notes]] now");
+  CHECK(doc->redo());
+  CHECK(doc->renamePage(pb, "Beta Notes"));
+  {  // styled text: runs keep their place when the title changes length
+    int64_t pd = doc->addPage("Delta");
+    Object st = textObj(10, 10, "**x [[Beta Notes]] tail");
+    st.setProp("runs", "0,3,1,,,");
+    int64_t sid = doc->addObject(pd, st);
+    doc->renamePage(pb, "B");
+    const Object* so = doc->object(sid);
+    CHECK(so && so->prop("text") == "**x [[B]] tail");
+    Runs rr = decodeRuns(so->prop("runs"), so->prop("text").size());
+    CHECK(rangeAllHave(rr, 0, 3, kBold) && !rangeAllHave(rr, 3, 6, kBold));
+    doc->renamePage(pb, "Beta Notes");
+    // a styled run AFTER the link must move with the text; a link to another page must stay as is
+    Object m2 = textObj(10, 10, "[[Beta Notes]] and [[Alpha]] tail");
+    m2.setProp("runs", "29,4,1,,,");  // "tail"
+    int64_t mid = doc->addObject(pd, m2);
+    doc->renamePage(pb, "Longer title here");
+    const Object* mo = doc->object(mid);
+    CHECK(mo && mo->prop("text") == "[[Longer title here]] and [[Alpha]] tail");
+    Runs mr = decodeRuns(mo->prop("runs"), mo->prop("text").size());
+    size_t tp = mo->prop("text").find("tail");
+    CHECK(rangeAllHave(mr, tp, tp + 4, kBold) && !rangeAllHave(mr, 0, tp, kBold));
+    doc->renamePage(pb, "Beta Notes");
+  }
+  int upd2 = -1;
+  doc->renamePage(pb, "Bad [title]", &upd2);  // cannot be written in brackets: links are left alone
+  CHECK(upd2 == 0 && doc->page(pa)->objects[0].prop("text") == "go to [[Beta Notes]] now");
   doc->renamePage(pb, "Beta Notes");
+  upd2 = -1;
+  doc->renamePage(pa, "Alpha2", &upd2);
+  CHECK(upd2 == 1);  // exactly one object (the mixed one) mentions Alpha
 
   // Overlay: found -> page address, missing -> create address; stored runs are untouched.
   std::string txt = "x [[Beta notes]] y [[Nope]]";
@@ -1081,7 +1120,7 @@ static void testWikiLinks() {
         f.data.find("href=\"page-" + std::to_string(pb) + ".html\"") != std::string::npos) exported = true;
   CHECK(exported);
   std::string mdw = exportMarkdown(*doc);
-  CHECK(mdw.find("go to [[beta notes]] now") != std::string::npos);  // kept in wiki form, not escaped
+  CHECK(mdw.find("go to [[Beta Notes]] now") != std::string::npos);  // kept in wiki form, not escaped
   MdInline back = parseMarkdownInline("go to [[beta notes]] now");
   CHECK(back.text == "go to [[beta notes]] now");
   std::remove(path.c_str());
