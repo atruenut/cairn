@@ -272,6 +272,27 @@ std::vector<WikiLink> findWikiLinks(const std::string& text) {
   return out;
 }
 
+std::string wikiOverlay(const std::string& text, const std::string& runsEnc,
+                        const std::function<long long(const std::string&)>& resolve) {
+  std::vector<WikiLink> wl = findWikiLinks(text);
+  if (wl.empty()) return runsEnc;
+  Runs runs = runsEnc.empty() ? Runs{} : decodeRuns(runsEnc, text.size());
+  for (const WikiLink& w : wl) {
+    long long id = resolve(w.title);
+    restyleRange(runs, w.start, w.start + w.len, text.size(), [&](Run& r) {
+      if (id) {
+        r.flags |= kUnderline;
+        r.color = 0x1A55C0;
+        r.url = "cairn-page:" + std::to_string(id);
+      } else {
+        r.color = 0xB04A4A;
+        r.url = "cairn-new:" + w.title;
+      }
+    });
+  }
+  return encodeRuns(runs);
+}
+
 std::string sanitizeLinkTarget(const std::string& typed) {
   std::string s = typed;
   while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
@@ -769,7 +790,7 @@ void escapeHtml(const std::string& s, size_t a, size_t b, std::string& out) {
 }
 }  // namespace
 
-std::string richToHtml(const std::string& text, const Runs& runsIn) {
+std::string richToHtml(const std::string& text, const Runs& runsIn, bool pageLinks) {
   Runs runs = runsIn;
   normalizeRuns(runs, text.size());
   std::string out;
@@ -779,6 +800,9 @@ std::string richToHtml(const std::string& text, const Runs& runsIn) {
     if (r.start > pos) plain(r.start);
     std::string open, close;
     std::string url = r.url.empty() ? "" : sanitizeLinkTarget(r.url);
+    if (pageLinks && r.url.compare(0, 11, "cairn-page:") == 0 && r.url.size() > 11 && r.url.size() < 22 &&
+        r.url.find_first_not_of("0123456789", 11) == std::string::npos)
+      url = "page-" + r.url.substr(11) + ".html";
     if (!url.empty()) {
       std::string safe;
       escapeHtml(url, 0, url.size(), safe);

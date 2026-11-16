@@ -89,7 +89,7 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
                          (al == 1 ? "center" : al == 2 ? "right" : "left") + ";";
         if (ob.propInt("bold", 0)) st += "font-weight:bold;";
         if (ob.propInt("fill", -1) >= 0) st += "background:" + css(ob.propInt("fill", 0)) + ";";
-        o += "<div class=\"t\" style=\"" + st + "\">" + richToHtml(text, decodeRuns(ob.prop("runs"), text.size())) +
+        o += "<div class=\"t\" style=\"" + st + "\">" + richToHtml(text, decodeRuns(wikiOverlay(text, ob.prop("runs"), [&](const std::string& t) { return (long long)doc.pageByTitle(t); }), text.size()), true) +
              "</div>\n";
         break;
       }

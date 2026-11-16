@@ -184,23 +184,9 @@ struct Piece {
 // The stored runs plus a display-only styling of [[wiki links]]: a found page gets a link, a missing one
 // is shown in muted red and does nothing. Nothing here is written back to the document.
 std::string Canvas::withWikiRuns(const Object& o) const {
-  const std::string& text = o.prop("text");
-  std::vector<WikiLink> wl = findWikiLinks(text);
-  if (wl.empty() || !doc_) return o.prop("runs");
-  Runs runs = o.prop("runs").empty() ? Runs{} : decodeRuns(o.prop("runs"), text.size());
-  for (const WikiLink& w : wl) {
-    int64_t id = doc_->pageByTitle(w.title);
-    restyleRange(runs, w.start, w.start + w.len, text.size(), [&](Run& r) {
-      if (id) {
-        r.flags |= kUnderline;
-        r.color = 0x1A55C0;
-        r.url = "cairn-page:" + std::to_string(id);
-      } else {
-        r.color = 0xB04A4A;
-      }
-    });
-  }
-  return encodeRuns(runs);
+  if (!doc_) return o.prop("runs");
+  return wikiOverlay(o.prop("text"), o.prop("runs"),
+                     [&](const std::string& t) { return (long long)doc_->pageByTitle(t); });
 }
 
 namespace {

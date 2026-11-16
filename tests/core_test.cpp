@@ -1054,6 +1054,36 @@ static void testWikiLinks() {
   CHECK(doc->backlinks(pc).empty());  // a page linking to itself isn't its own backlink
   doc->renamePage(pb, "Renamed");
   CHECK(doc->backlinks(pb).empty());  // the mention no longer resolves
+  doc->renamePage(pb, "Beta Notes");
+
+  // Overlay: found -> page address, missing -> create address; stored runs are untouched.
+  std::string txt = "x [[Beta notes]] y [[Nope]]";
+  std::string enc = wikiOverlay(txt, "", [&](const std::string& t) { return (long long)doc->pageByTitle(t); });
+  Runs ov = decodeRuns(enc, txt.size());
+  bool sawPage = false, sawNew = false;
+  for (const Run& r : ov) {
+    if (r.url == "cairn-page:" + std::to_string(pb)) sawPage = true;
+    if (r.url == "cairn-new:Nope") sawNew = true;
+  }
+  CHECK(sawPage && sawNew);
+  CHECK(wikiOverlay("no links", "", [](const std::string&) { return 0LL; }).empty());
+  CHECK(rangeAllHave(ov, 2, 14, kUnderline));
+  std::string html = richToHtml(txt, ov, true);
+  CHECK(html.find("href=\"page-" + std::to_string(pb) + ".html\"") != std::string::npos);
+  CHECK(html.find("cairn-new") == std::string::npos);  // the red one is not a link in HTML
+  CHECK(richToHtml(txt, ov, false).find("page-") == std::string::npos);  // clipboard copy never gets it
+  Runs hostile = decodeRuns("0,2,0,,,cairn-page:12x", 2);
+  CHECK(richToHtml("ab", hostile, true).find("page-") == std::string::npos);  // digits only
+
+  bool exported = false;
+  for (const ExportFile& f : exportSite(*doc, "t"))
+    if (f.path == "page-" + std::to_string(pa) + ".html" &&
+        f.data.find("href=\"page-" + std::to_string(pb) + ".html\"") != std::string::npos) exported = true;
+  CHECK(exported);
+  std::string mdw = exportMarkdown(*doc);
+  CHECK(mdw.find("go to [[beta notes]] now") != std::string::npos);  // kept in wiki form, not escaped
+  MdInline back = parseMarkdownInline("go to [[beta notes]] now");
+  CHECK(back.text == "go to [[beta notes]] now");
   std::remove(path.c_str());
 }
 

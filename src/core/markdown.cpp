@@ -22,8 +22,15 @@ bool isAlnumAscii(char c) { return std::isalnum((unsigned char)c) != 0; }
 // ------------------------------------------------------------------ export
 std::string escapeMd(const std::string& s) {
   std::string o;
+  std::vector<WikiLink> wiki = findWikiLinks(s);  // [[Title]] is kept as is: it is how other note tools write it too
+  size_t wi = 0;
   for (size_t i = 0; i < s.size(); ++i) {
     char c = s[i];
+    while (wi < wiki.size() && wiki[wi].start + wiki[wi].len <= i) ++wi;
+    if (wi < wiki.size() && i >= wiki[wi].start) {
+      o += c;
+      continue;
+    }
     bool lineStart = (i == 0 || s[i - 1] == '\n');
     if (c == '\\' || c == '*' || c == '_' || c == '`' || c == '[' || c == ']' || c == '~') o += '\\';
     else if (lineStart && (c == '#' || c == '>')) o += '\\';

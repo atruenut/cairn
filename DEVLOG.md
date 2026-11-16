@@ -672,6 +672,34 @@ Verified: 363 core checks; under Wine, the existing page's link draws blue, the
 missing one red, and a click navigates and shows up in the target's "Linked from"
 panel.
 
+## Entry 21: red links make pages, and exports follow links
+
+Two follow-ups to wiki links. A red link is now a "create this page" button:
+clicking it adds the page (one undo step, so a mis-click is Ctrl+Z) and goes there,
+which is how wikis grow. For that, the display overlay moved from the canvas into
+the core (`wikiOverlay`), so the website exporter can use the same code: it resolves
+`[[Title]]` and writes a real link to `page-<id>.html`. Unresolved titles export as
+muted red text with no link.
+
+`richToHtml` only turns the internal address into a link when told to
+(`pageLinks`, which only the exporter sets), and only for an address that is
+`cairn-page:` followed by digits. Clipboard copy never gets it, and a hostile
+file carrying `cairn-page:12x` does not.
+
+Markdown export keeps `[[Title]]` as typed rather than escaping the brackets,
+since that is how other note tools write it, and import already leaves it as text,
+so it round-trips.
+
+I got the red-link prefix length wrong (9 instead of 10) and the first page it
+created was titled ":Nowhere"; the native tests cannot see the Windows
+handler, so only the Wine run caught it. Fixed and re-run: the page is created
+with the right name, appears in the list, and the source page shows in its "Linked
+from" panel.
+
+Verified: 373 core checks natively; the red-link click under Wine as above. The
+exported site's links are covered by a core test but I did not open the result
+in a browser this time.
+
 ### TODO
 
 - Dark mode.

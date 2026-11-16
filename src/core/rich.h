@@ -54,6 +54,11 @@ struct WikiLink {
   std::string title;
 };
 std::vector<WikiLink> findWikiLinks(const std::string& text);
+// The encoded runs of `text` plus a display styling of its wiki links (nothing is stored): a title
+// that resolve() maps to a page id gets underline, blue and the address "cairn-page:<id>"; an
+// unresolved one (resolve returns 0) gets muted red and "cairn-new:<title>".
+std::string wikiOverlay(const std::string& text, const std::string& runsEnc,
+                        const std::function<long long(const std::string&)>& resolve);
 
 // A link address typed by a person -> something safe to store, or "" if unacceptable.
 // Accepts http(s)://, mailto:, and bare "www.x.org" / "x.org" (made https). Rejects every
@@ -103,7 +108,8 @@ int stepSizePercent(int currentPct, int dir);  // 50 .. 400; 0 means 100
 // ---- HTML copy -----------------------------------------------------------------
 // The reverse of htmlToRich: a safe HTML fragment (escaped text, <b><i><u><s><code>, links
 // restricted to http/https/mailto, colour and size as inline styles, newlines as <br>).
-std::string richToHtml(const std::string& text, const Runs& runs);
+// With pageLinks (website export only), an internal "cairn-page:<id>" address becomes page-<id>.html.
+std::string richToHtml(const std::string& text, const Runs& runs, bool pageLinks = false);
 // Wraps a fragment in the Windows "HTML Format" clipboard envelope (byte offsets filled in).
 std::string wrapClipboardHtml(const std::string& fragment);
 
