@@ -13,6 +13,14 @@ std::string trim(const std::string& s) {
   return s.substr(a, b - a);
 }
 
+// Shortens s to at most max bytes without leaving half of a multi-byte character.
+void cutUtf8(std::string& s, size_t max) {
+  if (s.size() <= max) return;
+  size_t n = max;
+  while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80) --n;  // s[n] would start in the middle of a character
+  s.resize(n);
+}
+
 bool isRuleLine(const std::string& line) {
   bool any = false;
   for (char c : line) {
@@ -71,7 +79,7 @@ Table parseTable(const std::string& text, bool skipRules) {
     }
     if (!closed || !trim(cur).empty()) cells.push_back(trim(cur));
     if (cells.size() > kTableMaxCols) cells.resize(kTableMaxCols);
-    for (std::string& c : cells) if (c.size() > kTableMaxCell) c.resize(kTableMaxCell);
+    for (std::string& c : cells) cutUtf8(c, kTableMaxCell);
     t.rows.push_back(std::move(cells));
   }
   size_t w = 0;
@@ -134,6 +142,39 @@ std::string tableToHtml(const Table& t, bool header) {
     o += "</tr>";
   }
   return o + "</table>";
+}
+
+bool tableInsertRow(Table& t, size_t at) {
+  if (at > t.rows.size() || t.rows.size() >= kTableMaxRows) return false;
+  t.rows.insert(t.rows.begin() + (long)at, std::vector<std::string>(std::max<size_t>(1, t.cols())));
+  return true;
+}
+
+bool tableDeleteRow(Table& t, size_t at) {
+  if (at >= t.rows.size() || t.rows.size() <= 1) return false;
+  t.rows.erase(t.rows.begin() + (long)at);
+  return true;
+}
+
+bool tableInsertCol(Table& t, size_t at) {
+  if (t.rows.empty()) t.rows.emplace_back();
+  if (at > t.cols() || t.cols() >= kTableMaxCols) return false;
+  for (auto& r : t.rows) r.insert(r.begin() + (long)at, std::string());
+  return true;
+}
+
+bool tableDeleteCol(Table& t, size_t at) {
+  if (at >= t.cols() || t.cols() <= 1) return false;
+  for (auto& r : t.rows) r.erase(r.begin() + (long)at);
+  return true;
+}
+
+bool tableSetCell(Table& t, size_t row, size_t col, const std::string& text) {
+  if (row >= t.rows.size() || col >= t.rows[row].size()) return false;
+  std::string c = cellInline(text);
+  cutUtf8(c, kTableMaxCell);
+  t.rows[row][col] = trim(c);
+  return true;
 }
 
 }  // namespace cairn

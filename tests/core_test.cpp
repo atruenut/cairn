@@ -1010,6 +1010,34 @@ static void testTables() {
         h.find("<th>") != std::string::npos && h.find("&amp;") != std::string::npos);
   CHECK(tableToHtml(a, false).find("<th>") == std::string::npos);
 
+  {  // structure edits
+    Table t = parseTable("| a | b |\n| c | d |\n");
+    CHECK(tableInsertRow(t, 1) && t.rows.size() == 3 && t.rows[1].size() == 2 && t.rows[1][0].empty() && t.rows[2][0] == "c");
+    CHECK(tableInsertRow(t, 3) && t.rows.size() == 4);  // append
+    CHECK(!tableInsertRow(t, 9) && t.rows.size() == 4);
+    CHECK(tableDeleteRow(t, 3) && tableDeleteRow(t, 1) && t.rows.size() == 2 && t.rows[1][0] == "c");
+    CHECK(tableInsertCol(t, 1) && t.cols() == 3 && t.rows[0][1].empty() && t.rows[0][2] == "b" && t.rows[1][2] == "d");
+    CHECK(tableInsertCol(t, 3) && t.cols() == 4 && !tableInsertCol(t, 9));
+    CHECK(tableDeleteCol(t, 3) && tableDeleteCol(t, 1) && t.cols() == 2 && t.rows[1][1] == "d");
+    CHECK(tableDeleteRow(t, 0) && !tableDeleteRow(t, 0) && t.rows.size() == 1);  // keeps one row
+    CHECK(tableDeleteCol(t, 0) && !tableDeleteCol(t, 0) && t.cols() == 1);        // and one column
+    Table big;
+    for (size_t i = 0; i < kTableMaxRows; ++i) tableInsertRow(big, big.rows.size());
+    CHECK(big.rows.size() == kTableMaxRows && !tableInsertRow(big, 0));  // row cap
+    Table wide = parseTable("x");
+    while (tableInsertCol(wide, wide.cols())) {}
+    CHECK(wide.cols() == kTableMaxCols);  // column cap
+    Table e;  // an empty table can still grow
+    CHECK(tableInsertCol(e, 0) && e.cols() == 1);
+    Table sc = parseTable("| a | b |\n");
+    CHECK(tableSetCell(sc, 0, 1, "  x\ny | z  ") && sc.rows[0][1] == "x y | z");
+    CHECK(!tableSetCell(sc, 5, 0, "q") && !tableSetCell(sc, 0, 5, "q"));
+    CHECK(parseTable(formatTable(sc)).rows == sc.rows);  // a bar inside a cell survives
+    std::string long_ = std::string(kTableMaxCell - 1, 'a') + "\xC3\xA9";  // 'é' would straddle the cap
+    tableSetCell(sc, 0, 0, long_);
+    CHECK(sc.rows[0][0].size() == kTableMaxCell - 1);  // cut before the character, not through it
+  }
+
   // Through a document: Markdown tables become table objects and survive an export.
   std::string path = tmpPath("tbl.cairn");
   auto doc = Document::create(path, false);

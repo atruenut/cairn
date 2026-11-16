@@ -23,17 +23,19 @@ namespace cairn {
 namespace {
 
 const wchar_t* kClass = L"CairnCanvas";
-constexpr UINT WM_EDIT_COMMIT = WM_APP + 1;  // wParam: 1 = give focus back to the canvas
+constexpr UINT WM_EDIT_COMMIT = WM_APP + 1;  // wParam: 1 = give focus back to the canvas; lParam: the editor that sent it
 constexpr UINT WM_EDIT_CANCEL = WM_APP + 2;
 constexpr UINT WM_EDIT_FORMAT = WM_APP + 3;  // wParam: Canvas::FormatCmd
 constexpr UINT WM_EDIT_UNDO = WM_APP + 6;    // wParam: 1 = redo
 constexpr UINT WM_EDIT_SIZE = WM_APP + 5;    // wParam: +1 / -1
+constexpr UINT WM_EDIT_CELLNAV = WM_APP + 7;  // wParam: +1 next cell / -1 previous (Tab, Shift+Tab)
 constexpr UINT WM_EDIT_PASTE = WM_APP + 4;   // rich (HTML) paste into the open editor
 constexpr int kGrid = 8;
 constexpr int kMinSize = 8;
 constexpr COLORREF kAccent = RGB(0x2F, 0x6F, 0xDE);
 
 WNDPROC g_oldEditProc = nullptr;
+bool g_editCell = false;  // the live editor is a table-cell editor (Tab moves between cells)
 bool g_editRich = false;  // the live editor is a RichEdit (text objects), not a plain EDIT
 
 int cpOfByte(const std::string& s, size_t b) { return (int)utf16UnitsBefore(s, b); }
@@ -61,6 +63,27 @@ std::wstring readEditText(HWND e, bool rich) {
   return w;
 }
 
+namespace {
+// Equal-width columns and rows that fill the object; the last column/row absorbs the remainder.
+RECT tableCellRect(const RECT& r, size_t rows, size_t cols, size_t ri, size_t ci) {
+  int cw = std::max(1, (int)((r.right - r.left) / (long)cols)), rh = std::max(1, (int)((r.bottom - r.top) / (long)rows));
+  RECT c;
+  c.left = r.left + (int)ci * cw;
+  c.top = r.top + (int)ri * rh;
+  c.right = ci + 1 == cols ? r.right : c.left + cw;
+  c.bottom = ri + 1 == rows ? r.bottom : c.top + rh;
+  return c;
+}
+
+bool tableCellAt(const RECT& r, size_t rows, size_t cols, int px, int py, size_t& ri, size_t& ci) {
+  if (!rows || !cols || px < r.left || px >= r.right || py < r.top || py >= r.bottom) return false;
+  int cw = std::max(1, (int)((r.right - r.left) / (long)cols)), rh = std::max(1, (int)((r.bottom - r.top) / (long)rows));
+  ci = std::min<size_t>(cols - 1, (size_t)((px - r.left) / cw));
+  ri = std::min<size_t>(rows - 1, (size_t)((py - r.top) / rh));
+  return true;
+}
+}  // namespace
+
 // Subclass for the inline editor: Esc cancels, Enter (single-line) or
 // Ctrl+Enter (multi-line) commits, losing focus commits quietly.
 LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -69,7 +92,7 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
   switch (m) {
     case WM_KILLFOCUS:
-      PostMessageW(parent, WM_EDIT_COMMIT, 0, 0);
+      PostMessageW(parent, WM_EDIT_COMMIT, 0, (LPARAM)h);
       break;
     case WM_KEYDOWN:
       if (ctrl && multi) {
@@ -96,12 +119,16 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       if (g_editRich && ctrl && multi &&
           (w == 'E' || w == 'L' || w == 'R' || w == 'J' || w == '1' || w == '2' || w == '5' || w == 'T'))
         return 0;  // RichEdit's own paragraph shortcuts mean nothing in a Cairn text box
+      if (g_editCell && w == VK_TAB) {
+        PostMessageW(parent, WM_EDIT_CELLNAV, (WPARAM)((GetKeyState(VK_SHIFT) & 0x8000) ? -1 : 1), 0);
+        return 0;
+      }
       if (w == VK_ESCAPE) {
         PostMessageW(parent, WM_EDIT_CANCEL, 0, 0);
         return 0;
       }
       if (w == VK_RETURN && (!multi || ctrl)) {
-        PostMessageW(parent, WM_EDIT_COMMIT, 1, 0);
+        PostMessageW(parent, WM_EDIT_COMMIT, 1, (LPARAM)h);
         return 0;
       }
       break;
@@ -117,6 +144,7 @@ LRESULT CALLBACK editProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       }
       break;
     case WM_CHAR:  // swallow the characters those keys would otherwise insert/beep
+      if (g_editCell && w == L'\t') return 0;  // Tab is navigation, never a character
       if (multi && ctrl && (w == 0x02 || w == 0x09 || w == 0x15 || w == 0x0B || w == 0x18 || w == 0x1D || w == 0x19 || w == 0x1A)) return 0;  // Ctrl+B/I/U/K/Shift+X/]
       if (w == VK_ESCAPE || (w == VK_RETURN && !multi) || (ctrl && (w == 0x0A || w == VK_RETURN)))
         return 0;
@@ -1107,7 +1135,12 @@ void Canvas::onDoubleClick(int x, int y) {
   sel_ = {o->id};
   notify();
   if (o->type == ObjType::Text) beginTextEdit();
-  else editProperties();
+  else if (o->type == ObjType::Table) {
+    Table t = parseTable(o->prop("data"));
+    size_t r, c;
+    if (tableCellAt(objRectPx(*o), t.rows.size(), t.cols(), x, y, r, c)) beginCellEdit(*o, r, c);
+    else editProperties();
+  } else editProperties();
 }
 
 bool Canvas::onKeyDown(WPARAM vk) {
@@ -1133,6 +1166,102 @@ bool Canvas::onKeyDown(WPARAM vk) {
 }
 
 // ----------------------------------------------------------------- editing
+
+bool Canvas::beginCellEdit(const Object& o, size_t row, size_t col) {
+  Table t = parseTable(o.prop("data"));
+  if (row >= t.rows.size() || col >= t.cols()) return false;
+  endEdit(true, false);
+  RECT cell = tableCellRect(objRectPx(o), t.rows.size(), t.cols(), row, col);
+  int minW = MulDiv(70, dpi_, 96);
+  if (cell.right - cell.left < minW) cell.right = cell.left + minW;
+  std::wstring text = widen(t.rows[row][col]);
+  editWnd_ = CreateWindowExW(0, L"EDIT", text.c_str(), WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+                             cell.left, cell.top, cell.right - cell.left, cell.bottom - cell.top, hwnd_,
+                             (HMENU)(INT_PTR)1, hi_, nullptr);
+  if (!editWnd_) return false;
+  editRich_ = false;
+  g_editRich = false;
+  g_editCell = true;
+  editIsText_ = false;
+  editId_ = o.id;
+  editRow_ = (int)row;
+  editCol_ = (int)col;
+  SendMessageW(editWnd_, EM_LIMITTEXT, kTableMaxCell, 0);
+  SendMessageW(editWnd_, WM_SETFONT, (WPARAM)fontFor(o.propInt("size", 12), o.propInt("header", 1) != 0 && row == 0), TRUE);
+  g_oldEditProc = (WNDPROC)SetWindowLongPtrW(editWnd_, GWLP_WNDPROC, (LONG_PTR)editProc);
+  SetFocus(editWnd_);
+  SendMessageW(editWnd_, EM_SETSEL, 0, -1);
+  return true;
+}
+
+// Tab: commit this cell and open the next one (Shift+Tab: the previous). Tab in the very last cell
+// adds a row, like a spreadsheet.
+void Canvas::cellNavigate(int dir) {
+  if (!editWnd_ || editRow_ < 0 || !doc_) return;
+  int64_t id = editId_;
+  size_t row = (size_t)editRow_, col = (size_t)editCol_;
+  endEdit(true, false);
+  const Object* o = doc_->object(id);
+  if (!o || o->type != ObjType::Table) return;
+  Table t = parseTable(o->prop("data"));
+  size_t rows = t.rows.size(), cols = t.cols();
+  if (!rows || !cols) return;
+  size_t idx = row * cols + col;
+  if (dir > 0) {
+    if (idx + 1 >= rows * cols) {
+      if (!tableInsertRow(t, rows)) return;
+      Object a = *o;
+      a.setProp("data", formatTable(t));
+      a.h = std::min(a.h + std::max(20, o->h / (int)rows), 4000);
+      doc_->updateObject(a, "Table Row");
+      o = doc_->object(id);
+      if (!o) return;
+    }
+    ++idx;
+  } else {
+    if (idx == 0) return;
+    --idx;
+  }
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  beginCellEdit(*o, idx / cols, idx % cols);
+}
+
+bool Canvas::contextOnTable() const {
+  if (!doc_) return false;
+  const Object* o = const_cast<Canvas*>(this)->objectAt(ctx_.x, ctx_.y);
+  if (!o || o->type != ObjType::Table) return false;
+  Table t = parseTable(o->prop("data"));
+  size_t r, c;
+  return tableCellAt(objRectPx(*o), t.rows.size(), t.cols(), ctx_.x, ctx_.y, r, c);
+}
+
+void Canvas::tableOp(int op) {
+  if (!doc_) return;
+  endEdit(true, false);
+  const Object* o = objectAt(ctx_.x, ctx_.y);
+  if (!o || o->type != ObjType::Table) return;
+  Table t = parseTable(o->prop("data"));
+  size_t rows = t.rows.size(), cols = t.cols(), r = 0, c = 0;
+  if (!tableCellAt(objRectPx(*o), rows, cols, ctx_.x, ctx_.y, r, c)) return;
+  int rowH = std::max(20, o->h / (int)std::max<size_t>(1, rows));
+  Object a = *o;
+  bool ok = false;
+  const char* label = "Table Row";
+  switch (op) {
+    case 0: ok = tableInsertRow(t, r); a.h += rowH; break;
+    case 1: ok = tableInsertRow(t, r + 1); a.h += rowH; break;
+    case 2: ok = tableDeleteRow(t, r); a.h = std::max(24, a.h - rowH); break;
+    case 3: ok = tableInsertCol(t, c); label = "Table Column"; break;
+    case 4: ok = tableInsertCol(t, c + 1); label = "Table Column"; break;
+    case 5: ok = tableDeleteCol(t, c); label = "Table Column"; break;
+  }
+  if (!ok) return;
+  a.h = std::min(a.h, 4000);
+  a.setProp("data", formatTable(t));
+  doc_->updateObject(a, label);
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  notify();
+}
 
 void Canvas::beginTextEdit() {
   if (!edit_ || sel_.size() != 1 || !doc_) return;
@@ -1191,6 +1320,23 @@ void Canvas::endEdit(bool commit, bool refocus) {
   std::wstring w = readEditText(e, editRich_);
   DestroyWindow(e);
   std::string newText = fromEditText(w);
+  if (editRow_ >= 0) {  // a table cell
+    size_t row = (size_t)editRow_, col = (size_t)editCol_;
+    editRow_ = editCol_ = -1;
+    g_editCell = false;
+    if (commit && doc_)
+      if (const Object* o = doc_->object(id)) {
+        Table t = parseTable(o->prop("data"));
+        if (tableSetCell(t, row, col, newText)) {
+          Object a = *o;
+          a.setProp("data", formatTable(t));
+          if (!(a.props == o->props)) doc_->updateObject(a, "Edit Cell");
+        }
+      }
+    if (refocus) SetFocus(hwnd_);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    return;
+  }
   if (editIsText_) {
     shiftRunsForEdit(editRuns_, editSynced_, newText);  // no-op if EN_CHANGE already kept it in step
     editSynced_ = newText;
@@ -1965,10 +2111,14 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
       return 0;
     case WM_EDIT_COMMIT:
       if (inFormat_) return 0;  // a dialog took focus from the editor; the edit continues afterwards
+      if (l && (HWND)l != editWnd_) return 0;  // a late message from an editor that is already gone
       endEdit(true, w != 0);
       return 0;
     case WM_EDIT_CANCEL:
       endEdit(false, true);
+      return 0;
+    case WM_EDIT_CELLNAV:
+      cellNavigate((int)w);
       return 0;
   }
   return DefWindowProcW(hwnd_, m, w, l);
@@ -2064,6 +2214,7 @@ int Canvas::folderRowAt(const Object& o, int px, int py) const {
   return (py - top) / rowH;
 }
 
+
 void Canvas::drawTable(HDC dc, const Object& o, const RECT& r) {
   Table t = parseTable(o.prop("data"));
   bool header = o.propInt("header", 1) != 0;
@@ -2083,11 +2234,10 @@ void Canvas::drawTable(HDC dc, const Object& o, const RECT& r) {
   HPEN grid = CreatePen(PS_SOLID, 1, RGB(138, 138, 138));
   HGDIOBJ oldPen = SelectObject(dc, grid);
   for (size_t ri = 0; ri < rows; ++ri) {
-    int top = r.top + (int)ri * rh, bottom = ri + 1 == rows ? r.bottom : top + rh;
     SelectObject(dc, fontFor(pt, header && ri == 0));
     for (size_t ci = 0; ci < cols; ++ci) {
-      int left = r.left + (int)ci * cw, right = ci + 1 == cols ? r.right : left + cw;
-      RECT cell{left, top, right, bottom};
+      RECT cell = tableCellRect(r, rows, cols, ri, ci);
+      int left = cell.left, right = cell.right, top = cell.top, bottom = cell.bottom;
       if (header && ri == 0) {
         HBRUSH hb = CreateSolidBrush(RGB(232, 236, 242));
         FillRect(dc, &cell, hb);

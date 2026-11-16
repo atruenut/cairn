@@ -724,6 +724,35 @@ suite taught me less than a red mutant did.
 Verified: 385 core checks; under Wine, renaming "Quick tour" to "Tour" via F6
 rewrote `[[quick tour]]` on the front page to `[[Tour]]` and left `[[Nowhere]]` alone.
 
+## Entry 23: typing into table cells
+
+Tables could only be edited as a block of bars and text, which is honest but
+tedious. Now in Edit mode you double-click a cell and type. I did not build a
+grid editor; the cell editor is the same plain EDIT control the canvas uses for
+button labels, placed over the cell, committing on Enter or when focus leaves.
+Tab commits and opens the neighbour, and Tab off the last cell appends a row and
+grows the object by one row height, which is the single spreadsheet habit I
+wanted most. Row and column insert/delete live on the right-click menu and are
+pure functions in the tested core (`tableInsertRow` and friends, with the row and
+column caps and the "never fewer than one row/column" rule).
+
+A bug the Wine run found, worth recording: the first Tab committed the cell but
+the next editor opened and was immediately committed away. Destroying an EDIT
+posts a WM_KILLFOCUS-driven "commit" message to the canvas, and by the time that
+message arrived the *new* editor existed, so the stale message committed and closed
+it. The commit message now carries the window that sent it, and the canvas ignores
+messages from an editor that is no longer current. The text editor had the same
+latent race (it was just never reopened that quickly). A window handle can in
+principle be reused, so the guard is good but not airtight.
+
+Also fixed while in there: capping a cell at 2000 bytes could split a multi-byte
+character; it now cuts before the character.
+
+Verified: 401 core checks; under Wine I double-clicked a cell and typed, tabbed
+to the end to append a row, and inserted a column from the right-click menu; the
+saved file shows each change. I did not check undo of these by hand, but each is
+one `updateObject` call like every other edit.
+
 ### TODO
 
 - Dark mode.

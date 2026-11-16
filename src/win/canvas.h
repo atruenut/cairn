@@ -51,6 +51,10 @@ class Canvas {
   void sendToBack();
   void editProperties();  // selected object, or the page when nothing is selected
   void beginTextEdit();
+  bool beginCellEdit(const Object& o, size_t row, size_t col);  // type straight into one table cell
+  void cellNavigate(int dir);                                   // Tab / Shift+Tab inside a cell editor
+  bool contextOnTable() const;                                  // is the right-click point on a table cell?
+  void tableOp(int op);  // 0/1 row above/below, 2 delete row, 3/4 column left/right, 5 delete column
   void editPageProperties();
 
   // Media and clipboard.
@@ -224,6 +228,7 @@ class Canvas {
   size_t pendCaret_ = 0;
   unsigned pendFlags_ = 0;
   int64_t editId_ = 0;
+  int editRow_ = -1, editCol_ = -1;  // >= 0 while a table cell is being edited
 };
 
 }  // namespace cairn

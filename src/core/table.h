@@ -23,4 +23,12 @@ std::string tableToMarkdown(const Table& t, bool header);  // GitHub-style; firs
 std::string tableToHtml(const Table& t, bool header);      // escaped, no styles
 std::string cellInline(const std::string& cell);           // cell text made safe for one table cell
 
+// Structure edits. Each returns false (and changes nothing) if the position is out of range or the
+// result would break a cap; a table always keeps at least one row and one column.
+bool tableInsertRow(Table& t, size_t at);  // new empty row before index `at` (at == rows appends)
+bool tableDeleteRow(Table& t, size_t at);
+bool tableInsertCol(Table& t, size_t at);
+bool tableDeleteCol(Table& t, size_t at);
+bool tableSetCell(Table& t, size_t row, size_t col, const std::string& text);  // text made one-line, capped
+
 }  // namespace cairn

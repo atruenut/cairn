@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.16.0";
+constexpr const char* kVersion = "0.17.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -39,7 +39,7 @@ enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_STATUS, IDC_LINKLABEL,
 
   IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
-  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE,
+  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
   IDM_PAGE_NEW, IDM_PAGE_RENAME, IDM_PAGE_DELETE, IDM_PAGE_PROPS, IDM_PAGE_BACK, IDM_PAGE_FORWARD,
@@ -1111,6 +1111,12 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_EDIT_ADDRECT: g.canvas.addObject(ObjType::Rect); break;
       case IDM_EDIT_ADDFOLDER: g.canvas.addObject(ObjType::Folder); break;
       case IDM_EDIT_ADDTABLE: g.canvas.addObject(ObjType::Table); break;
+      case IDM_TBL_ROW_ABOVE: g.canvas.tableOp(0); break;
+      case IDM_TBL_ROW_BELOW: g.canvas.tableOp(1); break;
+      case IDM_TBL_ROW_DEL: g.canvas.tableOp(2); break;
+      case IDM_TBL_COL_LEFT: g.canvas.tableOp(3); break;
+      case IDM_TBL_COL_RIGHT: g.canvas.tableOp(4); break;
+      case IDM_TBL_COL_DEL: g.canvas.tableOp(5); break;
       case IDM_EDIT_ADDIMAGE: cmdAddImage(); break;
       case IDM_EDIT_CUT: g.canvas.copySelection(true); break;
       case IDM_EDIT_COPY: g.canvas.copySelection(false); break;
@@ -1727,6 +1733,18 @@ void canvasContextMenu(POINT screen) {
     sep();
     add(IDM_EDIT_FRONT, L"Bring to Front");
     add(IDM_EDIT_BACK, L"Send to Back");
+    if (nsel == 1 && g.canvas.contextOnTable()) {
+      HMENU tm = CreatePopupMenu();
+      AppendMenuW(tm, MF_STRING, IDM_TBL_ROW_ABOVE, L"Insert Row Above");
+      AppendMenuW(tm, MF_STRING, IDM_TBL_ROW_BELOW, L"Insert Row Below");
+      AppendMenuW(tm, MF_STRING, IDM_TBL_ROW_DEL, L"Delete Row");
+      AppendMenuW(tm, MF_SEPARATOR, 0, nullptr);
+      AppendMenuW(tm, MF_STRING, IDM_TBL_COL_LEFT, L"Insert Column Left");
+      AppendMenuW(tm, MF_STRING, IDM_TBL_COL_RIGHT, L"Insert Column Right");
+      AppendMenuW(tm, MF_STRING, IDM_TBL_COL_DEL, L"Delete Column");
+      sep();
+      AppendMenuW(m, MF_POPUP, (UINT_PTR)tm, L"Table");
+    }
     if (g.canvas.selectionHasText()) {
       HMENU f = CreatePopupMenu();
       AppendMenuW(f, MF_STRING, IDM_FMT_BOLD, L"Bold\tCtrl+B");
