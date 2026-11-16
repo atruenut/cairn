@@ -3,6 +3,7 @@
 #pragma once
 
 #include <functional>
+#include "script.h"
 #include <map>
 #include <string>
 #include <utility>
@@ -88,6 +89,7 @@ class Canvas {
 
   std::function<void(int64_t)> onNavigate;  // a button was clicked in Run mode
   std::function<void(const std::wstring&)> onOpenLink;  // a button with a file/URL was clicked
+  std::function<void()> onBack;             // a script said "back": step the history
   std::function<void()> onActivate;         // this pane was clicked or got focus (split view)
   std::function<void()> onStateChanged;     // selection, zoom, mode or snap changed
 
@@ -173,6 +175,9 @@ class Canvas {
   void audioNotify(WPARAM w);         // MM_MCINOTIFY: the clip finished (loop it) or was stopped
   void audioAutoplay();               // Run mode: start the first "play when the page opens" clip
   bool addAudioBytes(const std::string& bytes, const std::string& name, int px, int py);
+  friend struct CanvasScriptHost;
+  ScriptVars scriptVars_;                // script variables live for the session, per document
+  bool runButtonScript(const std::string& source);
   bool marked_ = false;
   // Sound is per process (one MCI device alias), so its state is shared by every pane.
   static inline int64_t audioObj_ = 0;

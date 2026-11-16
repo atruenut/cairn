@@ -103,7 +103,9 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         std::string label = esc(ob.prop("label"));
         std::string href;
         long long target = ob.propInt("target", 0);
-        if (target > 0 && doc.page(target)) href = exportPageFile(target);
+        if (!ob.prop("script").empty()) {
+          // a scripted button does something else in Cairn; a static page cannot, so it is not a link
+        } else if (target > 0 && doc.page(target)) href = exportPageFile(target);
         else {
           std::string open = ob.prop("open");
           std::string safe = open.empty() ? "" : sanitizeLinkTarget(open);

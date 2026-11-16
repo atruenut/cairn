@@ -814,6 +814,51 @@ clicking the right pane makes it active, choosing a page in the list loaded it i
 pane only, and Ctrl+E switched only the right pane to Edit mode. I did not test editing the
 same page in both panes at once, or dragging objects between panes.
 
+## Entry 26: scripting, on a leash
+
+The last item on Tom's list is the one I was most cautious about: a document that
+runs code. A file someone sends you must never be able to do harm just by being
+clicked, and "a scripting language" usually means the opposite of that. So the
+design question came before any code: what is the smallest language that is
+still useful, and where can it not reach?
+
+The answer is a closed command set, not a general language. There are no loops, so a
+script runs each line at most once and always terminates; I do not need a timeout
+because there is nothing to time out. There is no file or network access and no way
+to name an arbitrary program. Every effect goes through a `ScriptHost` interface that
+the application implements: go to a page, set the text of a named text object, play a
+named clip, open a link (through the same `openLink` checks as a link button, so it
+still refuses programs and odd schemes), show a message. A hostile script can at worst
+annoy: navigate, change text on the current page (undoable), or pop up message boxes.
+The interpreter lives in the OS-free core, so it is covered by the native tests
+without a Windows machine.
+
+Parsing happens fully before anything runs, so a syntax error on line 5 does not
+leave lines 1 to 4 half-executed. Errors carry line numbers, nesting depth and string
+length have caps, and `if` cannot nest, which removes a whole category of recursion
+questions. Variables are session-only and per document; an unset variable reads as 0
+so counters are one line.
+
+The interface side: a button's Properties gains a Script box, checked on OK (an
+invalid script is not saved and the old one is kept, with the line and reason shown),
+and every object gains an optional Script name so scripts can find things. A scripted
+button replaces its Go-to / Open settings; the website export shows it as plain text
+since a static page cannot run it. Pasting a button carries its script along, which
+is fine, because the only thing a script can do is the above.
+
+I checked the three caps with mutation tests (disable the line cap, the nesting cap,
+and the string cap in turn: each makes a test fail).
+
+Verified: 455 core checks; under Wine, a button with `set n = n + 1`, a `text`
+update and `if n >= 2 then say "Twice!"` updated a named text object ("Clicked 1
+times", "Clicked 2 times") and showed the message box on the second click; undo became
+available afterwards. I did not exercise goto/back/play from a script by hand; those
+paths are covered by the mock-host tests only.
+
+That finishes the list Tom gave me (cell editing, audio, split view, scripting). What
+is left on my own TODO: a page-level "on open" script, remembering the split, a
+draggable pane divider, and per-pane history.
+
 ### TODO
 
 - Dark mode.

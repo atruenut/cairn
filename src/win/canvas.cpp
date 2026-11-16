@@ -1,6 +1,7 @@
 #include "canvas.h"
 #include "table.h"
 #include "media.h"
+#include "script.h"
 #include <mmsystem.h>
 
 #include <richedit.h>
@@ -445,6 +446,7 @@ void Canvas::setDocument(Document* d) {
   clearImages();
   cancelDrag();
   doc_ = d;
+  scriptVars_.clear();
   pageId_ = 0;
   sel_.clear();
   scrollX_ = scrollY_ = 0;
@@ -1142,8 +1144,13 @@ void Canvas::onLButtonUp(int, int) {
       if (const Object* o = doc_->object(id)) {
         int64_t target = o->propInt("target", 0);
         std::wstring open = widen(o->prop("open"));  // copy first: navigating can invalidate `o`
-        if (!open.empty() && onOpenLink) onOpenLink(open);
-        if (target > 0 && doc_->page(target) && onNavigate) onNavigate(target);
+        std::string script = o->prop("script");
+        if (!script.empty()) {
+          runButtonScript(script);  // a script replaces the Go-to / Open settings
+        } else {
+          if (!open.empty() && onOpenLink) onOpenLink(open);
+          if (target > 0 && doc_->page(target) && onNavigate) onNavigate(target);
+        }
       }
     }
   }
@@ -1864,6 +1871,8 @@ void Canvas::editProperties() {
   int ix = f.addNumber(L"X", a.x, -8000, 8000), iy = f.addNumber(L"Y", a.y, -8000, 8000);
   int iw = f.addNumber(L"Width", a.w, kMinSize, 8000), ih = f.addNumber(L"Height", a.h, kMinSize, 8000);
 
+  int iname = f.addText(L"Script name (so scripts can find it; optional)", widen(a.prop("sname")));
+  int iscript = -1;
   int itext = -1, ialign = -1, isize = -1, ibold = -1, icolor = -1, ifill = -1, itarget = -1;
   int iline = -1, ilw = -1, iround = -1, iopen = -1, ifit = -1, irestore = -1;
   std::vector<int64_t> pageIds;
@@ -1887,6 +1896,7 @@ void Canvas::editProperties() {
     }
     itarget = f.addCombo(L"Go to page", items, sel);
     iopen = f.addText(L"Open file or URL", widen(a.prop("open")));
+    iscript = f.addText(L"Script (one command per line; replaces the two above)", toEditText(a.prop("script")), true);
     isize = f.addNumber(L"Font size (pt)", a.propInt("size", 13), 6, 200);
     ibold = f.addCheck(L"Bold", a.propInt("bold", 0) != 0);
     icolor = f.addColor(L"Text color", a.propInt("color", 0x000000), false);
@@ -1917,6 +1927,12 @@ void Canvas::editProperties() {
   if (!f.run()) return;
 
   a.x = f.number(ix); a.y = f.number(iy); a.w = f.number(iw); a.h = f.number(ih);
+  {
+    std::string sn = narrow(f.text(iname));
+    while (!sn.empty() && sn.back() == ' ') sn.pop_back();
+    while (!sn.empty() && sn.front() == ' ') sn.erase(sn.begin());
+    if (sn.empty()) a.props.erase("sname"); else a.setProp("sname", sn);
+  }
   if (a.type == ObjType::Text) {
     a.setProp("text", fromEditText(f.text(itext)));
     a.setProp("align", std::to_string(f.combo(ialign)));
@@ -1929,6 +1945,14 @@ void Canvas::editProperties() {
       if (open.back() == ' ') open.pop_back(); else open.erase(open.begin());
     }
     if (open.empty()) a.props.erase("open"); else a.setProp("open", open);
+    std::string script = fromEditText(f.text(iscript));
+    ScriptResult sr = checkScript(script);
+    if (!sr.ok) {
+      MessageBoxW(GetParent(hwnd_), (L"The script was not saved. Line " + std::to_wstring(sr.line) + L": " + widen(sr.error)).c_str(),
+                  L"Cairn", MB_OK | MB_ICONWARNING);
+      script = o->prop("script");  // keep what was there
+    }
+    if (script.empty()) a.props.erase("script"); else a.setProp("script", script);
   } else if (a.type == ObjType::Audio) {
     a.setProp("name", narrow(f.text(itext)));
     a.setPropInt("loop", f.check(ifit) ? 1 : 0);
@@ -2566,6 +2590,84 @@ void Canvas::addFilesAt(const std::vector<std::wstring>& files, int px, int py) 
   if (!failed.empty())
     MessageBoxW(GetParent(hwnd_), (L"These files couldn't be read, so they were skipped:" + failed).c_str(),
                 L"Cairn", MB_OK | MB_ICONINFORMATION);
+}
+
+// ---------------------------------------------------------------- scripts
+// A button's script runs in Run mode, through this host: it can only do what the app lets it (go to a
+// page, set the text of a named text object, play a named clip, open what a link could open, say something).
+
+struct CanvasScriptHost : ScriptHost {
+  Canvas& c;
+  explicit CanvasScriptHost(Canvas& cv) : c(cv) {}
+  static std::string lower(std::string s) {
+    for (char& ch : s) ch = (char)std::tolower((unsigned char)ch);
+    return s;
+  }
+  const Object* find(ObjType t, const std::string& name, bool alsoFileName) const {
+    const Page* p = c.curPage();
+    if (!p) return nullptr;
+    std::string want = lower(name);
+    for (const Object& o : p->objects)
+      if (o.type == t && (lower(o.prop("sname")) == want || (alsoFileName && lower(o.prop("name")) == want))) return &o;
+    return nullptr;
+  }
+  bool gotoPage(const std::string& title) override {
+    int64_t id = c.doc_->pageByTitle(title);
+    if (!id || !c.onNavigate) return false;
+    c.onNavigate(id);
+    return true;
+  }
+  bool gotoRelative(const std::string& which) override {
+    const auto& pages = c.doc_->pages();
+    if (pages.empty() || !c.onNavigate) return false;
+    size_t cur = 0;
+    for (size_t i = 0; i < pages.size(); ++i) if (pages[i].id == c.pageId_) cur = i;
+    size_t to = cur;
+    if (which == "next") { if (cur + 1 >= pages.size()) return false; to = cur + 1; }
+    else if (which == "prev") { if (cur == 0) return false; to = cur - 1; }
+    else if (which == "first") to = 0;
+    else to = pages.size() - 1;
+    c.onNavigate(pages[to].id);
+    return true;
+  }
+  bool goBack() override {
+    if (!c.onBack) return false;
+    c.onBack();
+    return true;
+  }
+  bool setText(const std::string& name, const std::string& text) override {
+    const Object* o = find(ObjType::Text, name, false);
+    if (!o) return false;
+    Object a = *o;
+    a.setProp("text", text);
+    a.props.erase("runs");  // the old styling no longer matches the new text
+    c.doc_->updateObject(a, "Script");
+    return true;
+  }
+  bool play(const std::string& name) override {
+    const Object* o = find(ObjType::Audio, name, true);
+    return o && c.audioStart(*o);
+  }
+  void stop() override { c.audioStop(); }
+  bool open(const std::string& target) override {
+    if (!c.onOpenLink || target.empty()) return false;
+    c.onOpenLink(widen(target));  // the same checks as any link button (unknown schemes, programs, ...)
+    return true;
+  }
+  void say(const std::string& message) override {
+    MessageBoxW(GetParent(c.hwnd_), widen(message).c_str(), L"Cairn", MB_OK | MB_ICONINFORMATION);
+  }
+};
+
+bool Canvas::runButtonScript(const std::string& source) {
+  CanvasScriptHost host(*this);
+  ScriptResult r = runScript(source, scriptVars_, host);
+  if (!r.ok) {
+    std::wstring m = L"The script stopped at line " + std::to_wstring(r.line) + L":\n" + widen(r.error);
+    MessageBoxW(GetParent(hwnd_), m.c_str(), L"Cairn", MB_OK | MB_ICONINFORMATION);
+  }
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  return r.ok;
 }
 
 // ---------------------------------------------------------------- audio

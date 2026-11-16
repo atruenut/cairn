@@ -78,6 +78,23 @@ it this way. The brackets stay in the text. Renaming a page rewrites `[[links]]`
 export turns them into real links between pages; Markdown export keeps them as `[[Title]]`, which other
 note tools understand.
 
+**Button scripts.** A button's Properties has a Script box. When it is not empty, clicking the button in Run mode
+runs the script instead of its Go-to / Open settings. It is a deliberately tiny language: no loops, no files, no
+network, and each line runs at most once, so a script always ends. One statement per line, `#` starts a comment:
+
+    goto "Page title"     goto next | prev | first | last      back
+    set n = n + 1         numbers and "text"; an unset variable is 0; + joins text
+    text "Counter" = "Clicked " + n + " times"     set the text of the text object whose Script name is Counter
+    play "Clip"           stop                     a clip whose Script name or file name is Clip, on this page
+    open "https://example.org"                     only what a link button could open, with the same checks
+    say "hello"                                    a message box
+    if n >= 3 then say "Three!"                    = != <> < > <= >=; one statement after then; no nesting
+
+Give an object a Script name in its Properties so scripts can find it. A script is checked when you press OK and is
+not saved if it has an error (the old one is kept); at run time an error stops the script and says which line.
+Variables last until the document is closed. Changes a script makes to text are one undo step each. Scripts do not
+run on an exported website, where a scripted button is shown as plain text.
+
 **Split view.** View > Split View (Ctrl+\) shows two pages side by side. Each pane has its own page, its own
 Edit/Run mode and its own zoom, and it is a full pane: you can edit in either. Commands, the toolbar, the page
 list and the status bar follow the pane you last clicked, which is marked with a blue bar along its top. Click a
@@ -132,7 +149,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.19.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.20.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.19.0";
+constexpr const char* kVersion = "0.20.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -1981,6 +1981,7 @@ void wirePane(Canvas& c) {
   c.onNavigate = [](int64_t id) { navigate(id, true); };
   c.onStateChanged = [] { updateStatus(); };
   c.onOpenLink = [](const std::wstring& t) { openLink(t); };
+  c.onBack = [] { historyStep(-1); };
   Canvas* self = &c;
   c.onActivate = [self] { activatePane(self); };
 }

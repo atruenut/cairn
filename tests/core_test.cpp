@@ -10,6 +10,7 @@
 #include "markdown.h"
 #include "table.h"
 #include "media.h"
+#include "script.h"
 #include "urls.h"
 #include "sha256.h"
 
@@ -1220,6 +1221,88 @@ static void testAudioSniff() {
   std::remove(tmpPath("aud2.cairn").c_str());
 }
 
+namespace {
+struct MockHost : cairn::ScriptHost {
+  std::string log;
+  bool gotoPage(const std::string& t) override { log += "goto:" + t + ";"; return t != "Missing"; }
+  bool gotoRelative(const std::string& w) override { log += "rel:" + w + ";"; return true; }
+  bool goBack() override { log += "back;"; return true; }
+  bool setText(const std::string& n, const std::string& t) override { log += "text:" + n + "=" + t + ";"; return n != "Nope"; }
+  bool play(const std::string& n) override { log += "play:" + n + ";"; return true; }
+  void stop() override { log += "stop;"; }
+  bool open(const std::string& t) override { log += "open:" + t + ";"; return true; }
+  void say(const std::string& m) override { log += "say:" + m + ";"; }
+};
+}  // namespace
+
+static void testScripts() {
+  std::printf("scripts\n");
+  using namespace cairn;
+  auto run = [](const std::string& src, ScriptVars& v, MockHost& h) { return runScript(src, v, h); };
+  ScriptVars v;
+  MockHost h;
+  CHECK(run("goto \"Home\"\nback\ngoto next\nstop", v, h).ok && h.log == "goto:Home;back;rel:next;stop;");
+  h.log.clear();
+  CHECK(run("# a comment\n\n  say \"hi\"  # trailing comment\n", v, h).ok && h.log == "say:hi;");
+  h.log.clear();
+  CHECK(run("set n = n + 1\nset n = n + 1\nsay \"n=\" + n", v, h).ok && h.log == "say:n=2;");  // unset starts at 0
+  CHECK(run("set n = n + 1\nsay n", v, h).ok && h.log.find("say:3;") != std::string::npos);    // vars persist between runs
+  h.log.clear();
+  CHECK(run("set a = 7 - 2 - 1\nsay a\nsay -a\nsay (1 + 2) - (4 - 5)", v, h).ok && h.log == "say:4;say:-4;say:4;");
+  h.log.clear();
+  CHECK(run("set s = \"x\" + 1 + 2.5\nsay s", v, h).ok && h.log == "say:x12.5;");
+  h.log.clear();
+  CHECK(run("text \"Counter\" = \"Clicked \" + 3 + \" times\"", v, h).ok && h.log == "text:Counter=Clicked 3 times;");
+  h.log.clear();
+  CHECK(run("set n = 5\nif n >= 5 then say \"big\"\nif n < 5 then say \"small\"\nif n == 5 then say \"eq\"\nif n != 5 then say \"ne\"\nif n then say \"truthy\"\nif 0 then say \"zero\"\nif \"\" then say \"empty\"",
+            v, h).ok && h.log == "say:big;say:eq;say:truthy;");
+  h.log.clear();
+  CHECK(run("set w = \"abc\"\nif w = \"abc\" then goto \"Next\"\nif w <> \"abc\" then say \"no\"", v, h).ok && h.log == "goto:Next;");
+  h.log.clear();
+  CHECK(run("set g = 2\nif g > 1 then set g = g + 10\nsay g", v, h).ok && h.log == "say:12;");
+  h.log.clear();
+  CHECK(run("GOTO \"A\"\nSay \"B\"\nSET Q = 1\nsay q", v, h).ok && h.log == "goto:A;say:B;say:1;");  // case-insensitive commands and names
+  h.log.clear();
+  CHECK(run("play \"Clip\"\nopen \"https://example.org\"", v, h).ok && h.log == "play:Clip;open:https://example.org;");
+
+  // Errors carry a line number, and stop the script there.
+  h.log.clear();
+  ScriptResult r = run("say \"one\"\ngoto \"Missing\"\nsay \"never\"", v, h);
+  CHECK(!r.ok && r.line == 2 && r.error.find("Missing") != std::string::npos && h.log == "say:one;goto:Missing;");
+  r = run("text \"Nope\" = \"x\"", v, h);
+  CHECK(!r.ok && r.error.find("Nope") != std::string::npos);
+
+  // Syntax errors are found before anything runs.
+  h.log.clear();
+  r = run("say \"fine\"\nfrobnicate 3", v, h);
+  CHECK(!r.ok && r.line == 2 && h.log.empty());
+  CHECK(!checkScript("say \"unterminated").ok);
+  CHECK(!checkScript("set = 3").ok && !checkScript("set x 3").ok && !checkScript("text \"a\" \"b\"").ok);
+  CHECK(!checkScript("if 1 say \"x\"").ok);
+  CHECK(!checkScript("if 1 then if 2 then say \"x\"").ok);  // no nesting
+  CHECK(!checkScript("say \"a\" \"b\"").ok);                // trailing junk
+  CHECK(!checkScript("say 1 +").ok && !checkScript("say (1").ok && !checkScript("say ?").ok);
+  CHECK(!checkScript("say \"a\" - 1").ok || !run("say \"a\" - 1", v, h).ok);  // text can't be subtracted
+  CHECK(!run("say -\"a\"", v, h).ok);
+  CHECK(checkScript("").ok && checkScript("\n\n# nothing\n").ok);
+
+  // Caps and hostile input.
+  std::string many;
+  for (int i = 0; i < 201; ++i) many += "say 1\n";
+  CHECK(!checkScript(many).ok);
+  CHECK(checkScript(many.substr(0, 200 * 6)).ok);
+  CHECK(!checkScript("say \"" + std::string(2100, 'a') + "\"").ok);  // line too long
+  std::string deep = "say " + std::string(500, '(') + "1" + std::string(500, ')');
+  CHECK(!checkScript(deep).ok);  // nesting limit, no stack overflow
+  std::string chain = "say 1";
+  for (int i = 0; i < 400; ++i) chain += " + 1";
+  CHECK(run(chain, v, h).ok);
+  h.log.clear();
+  CHECK(run("set s = \"" + std::string(1500, 'x') + "\"\nset s = s + s + s\nset s = s + s + s\nset s = s + s + s\nsay \"ok\"", v, h).ok && h.log == "say:ok;");  // joined strings are capped
+  CHECK(v["s"].s.size() <= kScriptMaxString);
+  CHECK(run("say 0.1 + 0.2", v, h).ok);  // formatting of non-integers does not crash
+}
+
 int main() {
   testTags();
   testRichRuns();
@@ -1235,6 +1318,7 @@ int main() {
   testTables();
   testWikiLinks();
   testAudioSniff();
+  testScripts();
   testPageOrder();
   testUrls();
   testProps();
