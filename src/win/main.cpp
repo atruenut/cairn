@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.26.0";
+constexpr const char* kVersion = "0.27.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -154,6 +154,10 @@ void saveSettings() {
   writeIniInt(L"max", wp.showCmd == SW_SHOWMAXIMIZED ? 1 : 0);
   writeIniInt(L"split", g.splitX);
   writeIniInt(L"pane_split", g.split ? 1 : 0);
+  if (g.split && g.doc && g.canvas2.pageId()) {  // which page the second pane shows, for this file
+    writeIni(L"pane2_doc", widen(g.doc->path()));
+    writeIniInt(L"pane2_page", (int)g.canvas2.pageId());
+  }
   writeIniInt(L"pane_frac", g.paneFrac);
   writeIniInt(L"snap", cv().snap() ? 1 : 0);
   writeIniInt(L"edit", cv().editMode() ? 1 : 0);
@@ -395,7 +399,16 @@ void setDoc(std::unique_ptr<Document> d) {
   }
   if (!g.restoredSplit) {  // the first document of a run brings the split view back if it was open
     g.restoredSplit = true;
-    if (readIniInt(L"pane_split", 0) != 0) setSplit(true);
+    if (readIniInt(L"pane_split", 0) != 0) {
+      setSplit(true);
+      int64_t want = readIniInt(L"pane2_page", 0);
+      if (want && readIni(L"pane2_doc") == widen(g.doc->path()) && g.doc->page(want)) {
+        g.canvas2.setPage(want);
+        g.hist2 = {};
+        g.hist2.v = {want};
+        g.hist2.pos = 0;
+      }
+    }
   }
 }
 

@@ -102,8 +102,8 @@ Edit/Run mode and its own zoom, and it is a full pane: you can edit in either. C
 list and the status bar follow the pane you last clicked, which is marked with a blue bar along its top. Click a
 page in the list to load it into the active pane. Each pane keeps its own Back / Forward trail. Handy for reading one page while writing another, or for
 copying objects between pages with Ctrl+C / Ctrl+V. The second pane starts in Run mode. Drag the divider
-between the panes to resize them; whether the split was on, and the divider position, are remembered between
-sessions (the page shown in the second pane is not).
+between the panes to resize them; whether the split was on, the divider position and the page shown in the second pane
+are remembered between sessions (the page is remembered per file: open a different file and the second pane starts on its first page).
 
 **Export Page as Image.** File > Export Page as Image saves the page you are looking at as a PNG, the whole page at
 100% (not just the part in the window), drawn the way it looks in Run mode: no grid, no selection handles. It never
@@ -167,7 +167,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.26.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.27.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

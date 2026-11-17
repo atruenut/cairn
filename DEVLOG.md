@@ -260,10 +260,29 @@ buttons all in place, including parts that are scrolled out of view in the windo
 and a 40-megapixel cap, as with the other exports. Printing would be the natural sibling but I
 cannot test a printer here, so I did not ship it blind.
 
+## Entry 33: SQLite checked, and the second pane remembers
+
+Two requests from Tom, in order.
+
+**SQLite re-vendor.** The point of this TODO was that our copy came through an npm repackager, so I
+could not vouch for it. sqlite.org is blocked from my sandbox, but GitHub is not, and the
+official repository tags every release. I built the amalgamation myself from tag
+`version-3.54.1` (commit 5752022, dated to the second the source id in our header claims) and
+compared. `sqlite3.h` and `sqlite3ext.h` were byte-identical. `sqlite3.c` differed in 858 lines, all
+of them generated parser tables and one define, which looked like a build option rather than
+tampering. Rebuilding with `-DSQLITE_ENABLE_UPDATE_DELETE_LIMIT` made all three files byte-identical.
+So the vendored SQLite is authentic, and `vendor/sqlite/README.md` now records exactly how to
+reproduce it (needs `tclsh`). I did not replace the files: there was nothing to fix.
+
+**Second pane's page.** It is remembered per file, in the settings file rather than the document:
+the file's path plus the page id, written on close and honoured only if that same file is opened
+and the page still exists. No schema change, and a different file cannot be confused by it. Under
+Wine: right pane on Rich, closed, reopened: split back, divider back, right pane on Rich, left on
+Welcome.
+
 ### TODO / known gaps
 
-- Re-vendor the official SQLite amalgamation from sqlite.org and diff it
-  (current copy came through an npm repackager).
+- ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).
 - `UpdateWindow(owner)` before committing, to remove the lingering form.
 - Clipboard copy/paste of objects (only Duplicate exists).
 - Page reordering, tags UI, dark mode, the function-key bar.
