@@ -11,6 +11,7 @@
 #include "table.h"
 #include "media.h"
 #include "script.h"
+#include "arrange.h"
 #include "urls.h"
 #include "sha256.h"
 
@@ -1252,6 +1253,37 @@ struct MockHost : cairn::ScriptHost {
 };
 }  // namespace
 
+static void testArrange() {
+  std::vector<Box> v = {{10, 50, 40, 20}, {100, 10, 60, 30}, {30, 90, 20, 10}};
+  auto L = arrangeBoxes(v, Arrange::Left);
+  CHECK(L[0].x == 10 && L[1].x == 10 && L[2].x == 10 && L[1].y == 10 && L[1].w == 60);
+  auto R = arrangeBoxes(v, Arrange::Right);  // right edge is 160
+  CHECK(R[0].x == 120 && R[1].x == 100 && R[2].x == 140);
+  auto T = arrangeBoxes(v, Arrange::Top);
+  CHECK(T[0].y == 10 && T[1].y == 10 && T[2].y == 10);
+  auto B = arrangeBoxes(v, Arrange::Bottom);  // bottom edge is 100
+  CHECK(B[0].y == 80 && B[1].y == 70 && B[2].y == 90);
+  auto C = arrangeBoxes(v, Arrange::CenterH);  // centre line x = 85
+  CHECK(C[0].x == 65 && C[1].x == 55 && C[2].x == 75);
+  auto M = arrangeBoxes(v, Arrange::CenterV);  // centre line y = 55
+  CHECK(M[0].y == 45 && M[1].y == 40 && M[2].y == 50);
+  // Spread: outer two stay, the middle one lands so both gaps are equal.
+  std::vector<Box> s = {{0, 0, 10, 10}, {20, 0, 10, 10}, {100, 0, 10, 10}};  // given in a scrambled order too
+  auto SH = arrangeBoxes(s, Arrange::SpreadH);
+  CHECK(SH[0].x == 0 && SH[2].x == 100 && SH[1].x == 50);
+  std::vector<Box> sc = {{100, 0, 10, 10}, {0, 0, 10, 10}, {20, 0, 10, 10}};
+  auto SS = arrangeBoxes(sc, Arrange::SpreadH);
+  CHECK(SS[0].x == 100 && SS[1].x == 0 && SS[2].x == 50);
+  std::vector<Box> sv = {{0, 0, 10, 10}, {0, 5, 10, 30}, {0, 100, 10, 10}};  // uneven heights: gaps equal
+  auto SV = arrangeBoxes(sv, Arrange::SpreadV);  // span 110, used 50, gap 30 -> middle at 10+30 = 40
+  CHECK(SV[1].y == 40 && SV[0].y == 0 && SV[2].y == 100);
+  // Too few boxes: nothing moves.
+  CHECK(arrangeBoxes({{5, 5, 10, 10}}, Arrange::Left)[0].x == 5);
+  auto two = arrangeBoxes({{0, 0, 10, 10}, {50, 0, 10, 10}}, Arrange::SpreadH);
+  CHECK(two[0].x == 0 && two[1].x == 50);
+  CHECK(arrangeBoxes({}, Arrange::Top).empty());
+}
+
 static void testScripts() {
   std::printf("scripts\n");
   using namespace cairn;
@@ -1343,6 +1375,7 @@ int main() {
   testWikiLinks();
   testAudioSniff();
   testScripts();
+  testArrange();
   testPageOrder();
   testUrls();
   testProps();

@@ -2,6 +2,7 @@
 #include "table.h"
 #include "media.h"
 #include "script.h"
+#include "arrange.h"
 #include <mmsystem.h>
 
 #include <richedit.h>
@@ -1858,6 +1859,26 @@ void Canvas::nudge(int dx, int dy) {
       v.push_back(n);
     }
   doc_->updateObjects(v, "Nudge");
+}
+
+void Canvas::arrangeSelection(int mode) {
+  if (!edit_ || !doc_ || mode < 0 || mode > (int)Arrange::SpreadV) return;
+  std::vector<Object> objs;
+  std::vector<Box> boxes;
+  for (int64_t id : sel_)
+    if (const Object* o = doc_->object(id)) {
+      objs.push_back(*o);
+      boxes.push_back({o->x, o->y, o->w, o->h});
+    }
+  std::vector<Box> moved = arrangeBoxes(boxes, (Arrange)mode);
+  std::vector<Object> changed;
+  for (size_t i = 0; i < objs.size(); ++i)
+    if (moved[i].x != objs[i].x || moved[i].y != objs[i].y) {
+      objs[i].x = moved[i].x;
+      objs[i].y = moved[i].y;
+      changed.push_back(objs[i]);
+    }
+  if (!changed.empty()) doc_->updateObjects(changed, "Align");
 }
 
 void Canvas::bringToFront() {

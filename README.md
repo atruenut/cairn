@@ -105,6 +105,10 @@ copying objects between pages with Ctrl+C / Ctrl+V. The second pane starts in Ru
 between the panes to resize them; whether the split was on, and the divider position, are remembered between
 sessions (the page shown in the second pane is not).
 
+**Align objects.** Select two or more objects in Edit mode, then Edit > Align Objects: align left, right, top or
+bottom to the selection's outer edge, centre horizontally or vertically, or (with three or more) space them evenly
+across or down, keeping the two outermost where they are. Sizes never change, and each command is one undo step.
+
 **On-open scripts.** Edit > Add On-Open Script puts a script on the page itself (a dashed yellow note in Edit
 mode, invisible in Run mode). It runs every time the page is opened in Run mode, using the same commands as button
 scripts. A chain of pages that send each other onward stops after a few hops instead of looping forever.
@@ -159,7 +163,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.24.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.25.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

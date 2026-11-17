@@ -231,6 +231,19 @@ returned it to Welcome and the left pane stayed on Tour.
 Remaining from my list: remembering the second pane's page between sessions (it needs a
 per-document place to live, so it is not as free as the divider was), and re-vendoring SQLite.
 
+## Entry 31: Align Objects
+
+Everyone who has ever laid out a page by dragging boxes knows the moment where two things are
+almost lined up. Snap helps while you drag; this fixes it afterwards. Edit > Align Objects: left,
+right, top, bottom, centre horizontally/vertically, and space evenly across/down.
+
+The geometry lives in the OS-free core (`arrange.cpp`) as one pure function from boxes to boxes, so
+it is unit-tested natively: 12 checks including scrambled selection order and uneven box sizes.
+My first test had the wrong expectation (I hand-computed 45 for a middle box that belongs at 50:
+equal gaps are between edges, not between positions), so the test caught my arithmetic rather
+than the code. Under Wine I selected all 19 objects on the test page, chose Align Left, saw them
+snap to one edge, and Ctrl+Z put them all back in a single step.
+
 ### TODO / known gaps
 
 - Re-vendor the official SQLite amalgamation from sqlite.org and diff it

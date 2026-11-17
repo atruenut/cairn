@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.24.0";
+constexpr const char* kVersion = "0.25.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -42,6 +42,7 @@ enum Ids {
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_EDIT_ADDONOPEN, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
+  IDM_ARR_LEFT, IDM_ARR_RIGHT, IDM_ARR_TOP, IDM_ARR_BOTTOM, IDM_ARR_CENTERH, IDM_ARR_CENTERV, IDM_ARR_SPREADH, IDM_ARR_SPREADV,
   IDM_PAGE_NEW, IDM_PAGE_RENAME, IDM_PAGE_DELETE, IDM_PAGE_PROPS, IDM_PAGE_BACK, IDM_PAGE_FORWARD,
   IDM_PAGE_FIND, IDM_PAGE_MOVEUP, IDM_PAGE_MOVEDOWN,
   IDM_FMT_BOLD, IDM_FMT_ITALIC, IDM_FMT_UNDERLINE, IDM_FMT_STRIKE, IDM_FMT_LINK, IDM_FMT_COLOR,
@@ -1234,6 +1235,10 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_EDIT_SELECTALL: cv().selectAll(); break;
       case IDM_EDIT_FRONT: cv().bringToFront(); break;
       case IDM_EDIT_BACK: cv().sendToBack(); break;
+      case IDM_ARR_LEFT: case IDM_ARR_RIGHT: case IDM_ARR_TOP: case IDM_ARR_BOTTOM:
+      case IDM_ARR_CENTERH: case IDM_ARR_CENTERV: case IDM_ARR_SPREADH: case IDM_ARR_SPREADV:
+        cv().arrangeSelection((int)(id - IDM_ARR_LEFT));
+        break;
 
       case IDM_PAGE_NEW: cmdNewPage(); break;
       case IDM_PAGE_RENAME: cmdRenamePage(); break;
@@ -1336,6 +1341,19 @@ HMENU buildMenu() {
   sep(edit);
   add(edit, IDM_EDIT_FRONT, L"Bring to &Front");
   add(edit, IDM_EDIT_BACK, L"Send to Bac&k");
+  {
+    HMENU arr = CreatePopupMenu();
+    add(arr, IDM_ARR_LEFT, L"Align &Left");
+    add(arr, IDM_ARR_RIGHT, L"Align &Right");
+    add(arr, IDM_ARR_TOP, L"Align &Top");
+    add(arr, IDM_ARR_BOTTOM, L"Align &Bottom");
+    add(arr, IDM_ARR_CENTERH, L"Center &Horizontally");
+    add(arr, IDM_ARR_CENTERV, L"Center &Vertically");
+    sep(arr);
+    add(arr, IDM_ARR_SPREADH, L"Space Evenly &Across");
+    add(arr, IDM_ARR_SPREADV, L"Space Evenly &Down");
+    AppendMenuW(edit, MF_POPUP, (UINT_PTR)arr, L"A&lign Objects");
+  }
   AppendMenuW(bar, MF_POPUP, (UINT_PTR)edit, L"&Edit");
 
   HMENU page = CreatePopupMenu();
@@ -1431,6 +1449,7 @@ void updateMenuState() {
   en(IDM_EDIT_DELETE, edit && nsel > 0);
   en(IDM_EDIT_FRONT, edit && nsel > 0);
   en(IDM_EDIT_BACK, edit && nsel > 0);
+  for (int id = IDM_ARR_LEFT; id <= IDM_ARR_SPREADV; ++id) en(id, edit && nsel >= (id >= IDM_ARR_SPREADH ? 3 : 2));
   en(IDM_EDIT_SELECTALL, edit);
   en(IDM_FILE_SAVECOPY, has);
   en(IDM_FILE_EXPORT, has);

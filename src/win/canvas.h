@@ -48,6 +48,7 @@ class Canvas {
   void duplicateSelection();
   void selectAll();
   void nudge(int dx, int dy);
+  void arrangeSelection(int mode);  // 0..7 = cairn::Arrange; one undo step
   void bringToFront();
   void sendToBack();
   void editProperties();  // selected object, or the page when nothing is selected
