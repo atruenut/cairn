@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.23.0";
+constexpr const char* kVersion = "0.24.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -74,8 +74,11 @@ struct App {
   bool split = false;
   std::unique_ptr<Document> doc;
   std::vector<int64_t> listIds, backIds;
-  std::vector<int64_t> hist;
-  int hpos = -1;
+  struct History {
+    std::vector<int64_t> v;
+    int pos = -1;
+  } hist1, hist2;  // each pane keeps its own Back / Forward trail
+  History& hs() { return active == &canvas2 ? hist2 : hist1; }
   bool inRefresh = false;
 
   int splitX = 250;  // left pane width at 96 dpi
@@ -253,10 +256,10 @@ void refreshBacklinks() {
 
 void navigate(int64_t id, bool push) {
   if (!g.doc || !g.doc->page(id)) return;
-  if (push && !(g.hpos >= 0 && g.hist[(size_t)g.hpos] == id)) {
-    g.hist.resize((size_t)g.hpos + 1);
-    g.hist.push_back(id);
-    g.hpos = (int)g.hist.size() - 1;
+  if (push && !(g.hs().pos >= 0 && g.hs().v[(size_t)g.hs().pos] == id)) {
+    g.hs().v.resize((size_t)g.hs().pos + 1);
+    g.hs().v.push_back(id);
+    g.hs().pos = (int)g.hs().v.size() - 1;
   }
   cv().setPage(id);
   refreshPageList();
@@ -266,11 +269,11 @@ void navigate(int64_t id, bool push) {
 }
 
 void historyStep(int dir) {
-  int i = g.hpos + dir;
-  while (i >= 0 && i < (int)g.hist.size() && !g.doc->page(g.hist[(size_t)i])) i += dir;  // skip deleted pages
-  if (i < 0 || i >= (int)g.hist.size()) return;
-  g.hpos = i;
-  navigate(g.hist[(size_t)i], false);
+  int i = g.hs().pos + dir;
+  while (i >= 0 && i < (int)g.hs().v.size() && !g.doc->page(g.hs().v[(size_t)i])) i += dir;  // skip deleted pages
+  if (i < 0 || i >= (int)g.hs().v.size()) return;
+  g.hs().pos = i;
+  navigate(g.hs().v[(size_t)i], false);
 }
 
 void onDocChanged() {
@@ -367,15 +370,19 @@ void setDoc(std::unique_ptr<Document> d) {
   g.canvas.setDocument(nullptr);  // never leave a canvas pointing at a dying document
   if (g.canvas2.hwnd()) g.canvas2.setDocument(nullptr);
   g.doc = std::move(d);
-  g.hist.clear();
-  g.hpos = -1;
+  g.hist1 = {};
+  g.hist2 = {};
   SetWindowTextW(g.search, L"");
   if (!g.doc) return;
   g.doc->onChange = [] { onDocChanged(); };
   g.canvas.setDocument(g.doc.get());
   if (g.canvas2.hwnd()) {
     g.canvas2.setDocument(g.doc.get());
-    if (!g.doc->pages().empty()) g.canvas2.setPage(g.doc->pages().front().id);
+    if (!g.doc->pages().empty()) {
+      g.canvas2.setPage(g.doc->pages().front().id);
+      g.hist2.v = {g.doc->pages().front().id};
+      g.hist2.pos = 0;
+    }
   }
   writeIni(L"last", widen(g.doc->path()));
   if (!g.doc->pages().empty()) navigate(g.doc->pages().front().id, true);
@@ -1434,8 +1441,8 @@ void updateMenuState() {
     en(IDM_PAGE_MOVEUP, ci > 0);
     en(IDM_PAGE_MOVEDOWN, ci >= 0 && ci + 1 < (int)g.doc->pages().size());
   }
-  en(IDM_PAGE_BACK, g.hpos > 0);
-  en(IDM_PAGE_FORWARD, g.hpos >= 0 && g.hpos + 1 < (int)g.hist.size());
+  en(IDM_PAGE_BACK, g.hs().pos > 0);
+  en(IDM_PAGE_FORWARD, g.hs().pos >= 0 && g.hs().pos + 1 < (int)g.hs().v.size());
   CheckMenuItem(m, IDM_VIEW_EDITMODE, MF_BYCOMMAND | (edit ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(m, IDM_VIEW_SNAP, MF_BYCOMMAND | (cv().snap() ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(m, IDM_VIEW_SPLIT, MF_BYCOMMAND | (g.split ? MF_CHECKED : MF_UNCHECKED));
@@ -1728,8 +1735,8 @@ void syncToolbar() {
   chk(IDM_FMT_UNDERLINE, (sty & cairn::kUnderline) != 0);
   en(IDM_PAGE_NEW, has);
   en(IDM_PAGE_TAGS, has);
-  en(IDM_PAGE_BACK, g.hpos > 0);
-  en(IDM_PAGE_FORWARD, g.hpos >= 0 && g.hpos + 1 < (int)g.hist.size());
+  en(IDM_PAGE_BACK, g.hs().pos > 0);
+  en(IDM_PAGE_FORWARD, g.hs().pos >= 0 && g.hs().pos + 1 < (int)g.hs().v.size());
   en(IDM_PAGE_MOVEUP, ci > 0);
   en(IDM_PAGE_MOVEDOWN, has && ci >= 0 && ci + 1 < (int)g.doc->pages().size());
   en(IDM_EDIT_UNDO, has && g.doc->canUndo());
@@ -1777,8 +1784,8 @@ void canvasContextMenu(POINT screen) {
   }
   if (!edit) {
     sep();
-    add(IDM_PAGE_BACK, L"Back\tAlt+Left", g.hpos > 0);
-    add(IDM_PAGE_FORWARD, L"Forward\tAlt+Right", g.hpos >= 0 && g.hpos + 1 < (int)g.hist.size());
+    add(IDM_PAGE_BACK, L"Back\tAlt+Left", g.hs().pos > 0);
+    add(IDM_PAGE_FORWARD, L"Forward\tAlt+Right", g.hs().pos >= 0 && g.hs().pos + 1 < (int)g.hs().v.size());
     sep();
     add(IDM_VIEW_EDITMODE, L"Edit This Page\tCtrl+E");
   } else if (nsel > 0) {
@@ -2041,6 +2048,12 @@ void setSplit(bool on) {
   g.split = on;
   if (on) {
     g.canvas2.setPage(g.canvas.pageId());
+    int64_t shown = g.canvas.pageId();  // the second pane's trail starts from what it now shows
+    if (shown && !(g.hist2.pos >= 0 && g.hist2.v[(size_t)g.hist2.pos] == shown)) {
+      g.hist2.v.resize((size_t)g.hist2.pos + 1);
+      g.hist2.v.push_back(shown);
+      g.hist2.pos = (int)g.hist2.v.size() - 1;
+    }
     g.canvas.setMarked(g.active == &g.canvas);
     g.canvas2.setMarked(g.active == &g.canvas2);
   } else {

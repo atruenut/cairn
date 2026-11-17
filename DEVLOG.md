@@ -219,6 +219,18 @@ Danger worth designing for: page A's script says goto B, page B's says goto A. A
 now stop after four hops. Under Wine, an on-open script of `goto "Rich"` on Welcome sent me
 straight to Rich when I opened Welcome from the list. The starter scripting page mentions it.
 
+## Entry 30: each pane remembers its own trail
+
+Back and Forward used to be one shared trail, so stepping Back in the right pane could move
+the left pane's page (or rather: walk through a history mixed from both). Each pane now has its
+own trail, and the second pane's trail starts from whatever it showed when the split opened.
+Everything that asks "can I go back?" (menu, toolbar, context menu) follows the active pane.
+Checked under Wine: left pane on Tour, right pane Welcome then Rich; Back in the right pane
+returned it to Welcome and the left pane stayed on Tour.
+
+Remaining from my list: remembering the second pane's page between sessions (it needs a
+per-document place to live, so it is not as free as the divider was), and re-vendoring SQLite.
+
 ### TODO / known gaps
 
 - Re-vendor the official SQLite amalgamation from sqlite.org and diff it
