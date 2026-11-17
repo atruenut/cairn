@@ -195,6 +195,37 @@ bool decodeAnimation(const std::string& bytes, Animation& out) {
   return true;
 }
 
+bool savePng(HBITMAP dib, const std::wstring& path) {
+  BITMAP bm{};
+  if (!dib || !GetObjectW(dib, sizeof bm, &bm) || !bm.bmBits || bm.bmBitsPixel != 32 || bm.bmWidth <= 0 || bm.bmHeight == 0)
+    return false;
+  UINT w = (UINT)bm.bmWidth, h = (UINT)std::abs(bm.bmHeight);
+  ComPtr<IWICImagingFactory> factory;
+  if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                              (void**)&factory)))
+    return false;
+  ComPtr<IWICStream> stream;
+  if (FAILED(factory->CreateStream(&stream))) return false;
+  if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) return false;  // never overwrite
+  if (FAILED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE))) return false;
+  ComPtr<IWICBitmapEncoder> enc;
+  if (FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc))) return false;
+  if (FAILED(enc->Initialize(stream.p, WICBitmapEncoderNoCache))) return false;
+  ComPtr<IWICBitmapFrameEncode> frame;
+  ComPtr<IPropertyBag2> props;
+  if (FAILED(enc->CreateNewFrame(&frame, &props))) return false;
+  if (FAILED(frame->Initialize(props.p)) || FAILED(frame->SetSize(w, h))) return false;
+  WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
+  if (FAILED(frame->SetPixelFormat(&fmt))) return false;
+  UINT stride = w * 4;
+  if (FAILED(frame->WritePixels(h, stride, stride * h, (BYTE*)bm.bmBits))) return false;
+  if (FAILED(frame->Commit()) || FAILED(enc->Commit())) {
+    DeleteFileW(path.c_str());
+    return false;
+  }
+  return true;
+}
+
 bool scaleImage(HBITMAP src, int sw, int sh, int dw, int dh, HBITMAP& out) {
   BITMAP bm{};
   if (!src || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 || !GetObjectW(src, sizeof bm, &bm) ||

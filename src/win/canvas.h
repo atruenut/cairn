@@ -48,6 +48,7 @@ class Canvas {
   void duplicateSelection();
   void selectAll();
   void nudge(int dx, int dy);
+  bool exportPagePng(const std::wstring& path);  // the page as it looks in Run mode, at 100%
   void arrangeSelection(int mode);  // 0..7 = cairn::Arrange; one undo step
   void bringToFront();
   void sendToBack();
@@ -219,6 +220,7 @@ class Canvas {
   bool edit_ = true;
   bool snap_ = true;
   double zoom_ = 1.0;
+  bool exporting_ = false;  // exportPagePng is drawing: origin is (0,0)
   int dpi_ = 96;
   int scrollX_ = 0, scrollY_ = 0;
   bool inScroll_ = false;

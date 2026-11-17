@@ -105,6 +105,10 @@ copying objects between pages with Ctrl+C / Ctrl+V. The second pane starts in Ru
 between the panes to resize them; whether the split was on, and the divider position, are remembered between
 sessions (the page shown in the second pane is not).
 
+**Export Page as Image.** File > Export Page as Image saves the page you are looking at as a PNG, the whole page at
+100% (not just the part in the window), drawn the way it looks in Run mode: no grid, no selection handles. It never
+overwrites an existing file.
+
 **Align objects.** Select two or more objects in Edit mode, then Edit > Align Objects: align left, right, top or
 bottom to the selection's outer edge, centre horizontally or vertically, or (with three or more) space them evenly
 across or down, keeping the two outermost where they are. Sizes never change, and each command is one undo step.
@@ -163,7 +167,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.25.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.26.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

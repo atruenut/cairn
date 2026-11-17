@@ -35,6 +35,9 @@ bool decodeAnimation(const std::string& bytes, Animation& out);
 // GDI's StretchBlt can't be used here: it leaves the alpha channel undefined.
 bool scaleImage(HBITMAP src, int sw, int sh, int dw, int dh, HBITMAP& out);
 
+// Writes a 32-bit top-down BGRA DIB (opaque pixels) to a new PNG file. Never overwrites.
+bool savePng(HBITMAP dib, const std::wstring& path);
+
 // MIME type from magic bytes (not from the extension: names lie).
 std::string sniffMime(const std::string& bytes);
 

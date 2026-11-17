@@ -31,14 +31,14 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.25.0";
+constexpr const char* kVersion = "0.26.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
 enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_CANVAS2, IDC_STATUS, IDC_LINKLABEL,
 
-  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
+  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_EXPORTPNG, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_EDIT_ADDONOPEN, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
@@ -542,6 +542,26 @@ void cmdExportMarkdown() {
   }
   MessageBoxW(g.hwnd, L"Exported the text of every page.\n\nImages and rectangles are not included.", kAppName,
               MB_OK | MB_ICONINFORMATION);
+}
+
+// The page being looked at, as a PNG, the way it looks in Run mode. Never overwrites an existing file.
+void cmdExportPng() {
+  if (!g.doc || !cv().pageId()) return;
+  wchar_t buf[1024] = {};
+  OPENFILENAMEW ofn{};
+  ofn.lStructSize = sizeof ofn;
+  ofn.hwndOwner = g.hwnd;
+  ofn.lpstrFilter = L"PNG image (*.png)\0*.png\0";
+  ofn.lpstrFile = buf;
+  ofn.nMaxFile = 1023;
+  ofn.lpstrDefExt = L"png";
+  ofn.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+  if (!GetSaveFileNameW(&ofn)) return;
+  if (std::filesystem::exists(std::filesystem::path(std::wstring(buf)))) {
+    showError(L"That file already exists. Pick a new name; Cairn never overwrites on its own.");
+    return;
+  }
+  if (!cv().exportPagePng(buf)) showError(L"Couldn't save the page as an image.");
 }
 
 // Each "# heading" becomes a page; everything lands as one undo step per page.
@@ -1163,6 +1183,7 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_FILE_SAVECOPY: cmdSaveCopy(); break;
       case IDM_FILE_EXPORT: cmdExportSite(); break;
       case IDM_FILE_EXPORTMD: cmdExportMarkdown(); break;
+      case IDM_FILE_EXPORTPNG: cmdExportPng(); break;
       case IDM_FILE_IMPORTMD: cmdImportMarkdown(); break;
       case IDM_FILE_EXIT: SendMessageW(g.hwnd, WM_CLOSE, 0, 0); break;
 
@@ -1294,6 +1315,7 @@ HMENU buildMenu() {
   add(file, IDM_FILE_SAVECOPY, L"Save a &Copy As...");
   add(file, IDM_FILE_EXPORT, L"&Export as Website...");
   add(file, IDM_FILE_EXPORTMD, L"Export as &Markdown...");
+  add(file, IDM_FILE_EXPORTPNG, L"Export Page as &Image...");
   add(file, IDM_FILE_IMPORTMD, L"&Import Markdown...");
   sep(file);
   add(file, IDM_FILE_EXIT, L"E&xit");
@@ -1454,6 +1476,7 @@ void updateMenuState() {
   en(IDM_FILE_SAVECOPY, has);
   en(IDM_FILE_EXPORT, has);
   en(IDM_FILE_EXPORTMD, has);
+  en(IDM_FILE_EXPORTPNG, has && cv().pageId() != 0);
   en(IDM_FILE_IMPORTMD, has);
   {
     int ci = currentPageIndex();

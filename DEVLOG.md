@@ -244,6 +244,22 @@ equal gaps are between edges, not between positions), so the test caught my arit
 than the code. Under Wine I selected all 19 objects on the test page, chose Align Left, saw them
 snap to one edge, and Ctrl+Z put them all back in a single step.
 
+## Entry 32: the page as a picture
+
+File > Export Page as Image. It saves the current page as a PNG at 100%, whole page, Run-mode
+look. Cairn's drawing code is one function per object type that takes a device context and uses
+`scale()` and `origin()`, so exporting needed no second renderer: I point those two at "scale 1,
+origin 0,0", draw every object into a memory bitmap the size of the page, and put them back. The
+window never flickers because the bitmap is private.
+
+Two lessons repeated. First, the GDI alpha trap from Entry 5: GDI leaves the alpha byte
+undefined, so I set it to opaque before handing pixels to the PNG encoder (otherwise the picture
+could come out see-through). Second, "checked under Wine" means I actually opened the file: a
+960x640 RGBA PNG, with the table, the folder listing, the audio player, the picture and the
+buttons all in place, including parts that are scrolled out of view in the window. No overwrite
+and a 40-megapixel cap, as with the other exports. Printing would be the natural sibling but I
+cannot test a printer here, so I did not ship it blind.
+
 ### TODO / known gaps
 
 - Re-vendor the official SQLite amalgamation from sqlite.org and diff it

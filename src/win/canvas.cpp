@@ -572,6 +572,7 @@ std::wstring Canvas::selectionSummary() const {
 // ---------------------------------------------------------------- geometry
 
 POINT Canvas::origin() const {
+  if (exporting_) return {0, 0};  // rendering the page to an image: the page fills it
   RECT rc;
   GetClientRect(hwnd_, &rc);
   const Page* p = curPage();
@@ -1879,6 +1880,49 @@ void Canvas::arrangeSelection(int mode) {
       changed.push_back(objs[i]);
     }
   if (!changed.empty()) doc_->updateObjects(changed, "Align");
+}
+
+// Draws the whole page at 100% into a bitmap and saves it as a PNG. Looks like Run mode: no grid, no handles.
+bool Canvas::exportPagePng(const std::wstring& path) {
+  const Page* p = curPage();
+  if (!p || !doc_) return false;
+  if ((long long)p->w * p->h > 40ll * 1000 * 1000) return false;
+  BITMAPINFO bi{};
+  bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+  bi.bmiHeader.biWidth = p->w;
+  bi.bmiHeader.biHeight = -p->h;  // top-down
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bmp = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (!bmp || !bits) return false;
+  HDC dc = CreateCompatibleDC(nullptr);
+  HGDIOBJ old = SelectObject(dc, bmp);
+  double savedZoom = zoom_;
+  bool savedEdit = edit_;
+  zoom_ = 96.0 / dpi_;  // scale() is now exactly 1: one page unit per pixel
+  edit_ = false;
+  exporting_ = true;
+  clearFonts();
+  RECT pr{0, 0, p->w, p->h};
+  HBRUSH pb = CreateSolidBrush(toColorRef(p->bg));
+  FillRect(dc, &pr, pb);
+  DeleteObject(pb);
+  for (const Object& o : p->objects) drawObject(dc, o, false);
+  exporting_ = false;
+  zoom_ = savedZoom;
+  edit_ = savedEdit;
+  clearFonts();
+  GdiFlush();
+  uint32_t* px = (uint32_t*)bits;
+  for (size_t i = 0, n = (size_t)p->w * p->h; i < n; ++i) px[i] |= 0xFF000000u;  // GDI leaves alpha undefined
+  bool ok = savePng(bmp, path);
+  SelectObject(dc, old);
+  DeleteDC(dc);
+  DeleteObject(bmp);
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  return ok;
 }
 
 void Canvas::bringToFront() {
