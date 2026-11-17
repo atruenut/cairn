@@ -652,7 +652,26 @@ void Canvas::drawObject(HDC dc, const Object& o, bool pressed) {
       SelectObject(dc, br);
       SelectObject(dc, pen);
       int kind = o.propInt("kind", 0);
-      if (kind == 1) {
+      Segment seg;
+      if (shapeSegment(kind, r.left, r.top, r.right - r.left, r.bottom - r.top, seg)) {
+        // lines use a plain pen (an inside-frame pen is only meaningful for closed shapes)
+        HPEN lp = CreatePen(PS_SOLID, pw, toColorRef(line >= 0 ? line : 0x555555));
+        HBRUSH hb = CreateSolidBrush(toColorRef(line >= 0 ? line : 0x555555));
+        SelectObject(dc, lp);
+        SelectObject(dc, hb);
+        MoveToEx(dc, seg.x1, seg.y1, nullptr);
+        LineTo(dc, seg.x2, seg.y2);
+        if (seg.arrow) {
+          Pt h[3];
+          arrowHead(seg, std::max(8, pw * 5), std::max(4, pw * 2), h);
+          POINT pts[3] = {{h[0].x, h[0].y}, {h[1].x, h[1].y}, {h[2].x, h[2].y}};
+          Polygon(dc, pts, 3);
+        }
+        SelectObject(dc, GetStockObject(NULL_PEN));
+        SelectObject(dc, GetStockObject(NULL_BRUSH));
+        DeleteObject(lp);
+        DeleteObject(hb);
+      } else if (kind == 1) {
         Ellipse(dc, r.left, r.top, r.right + 1, r.bottom + 1);
       } else if (kind == 2) {
         POINT pts[4] = {{(r.left + r.right) / 2, r.top}, {r.right, (r.top + r.bottom) / 2},
@@ -2020,7 +2039,9 @@ void Canvas::editProperties() {
     ifit = f.addCombo(L"Scaling", {L"Stretch to the box", L"Keep proportions"}, a.propInt("fit", 1) ? 1 : 0);
     irestore = f.addCheck(L"Restore original proportions (keeps width)", false);
   } else {
-    ikind = f.addCombo(L"Shape", {L"Rectangle", L"Ellipse", L"Diamond", L"Triangle"}, std::clamp(a.propInt("kind", 0), 0, 3));
+    ikind = f.addCombo(L"Shape", {L"Rectangle", L"Ellipse", L"Diamond", L"Triangle", L"Horizontal line", L"Vertical line",
+                                    L"Diagonal line (down)", L"Diagonal line (up)", L"Arrow (right)", L"Arrow (down)"},
+                     std::clamp(a.propInt("kind", 0), 0, 9));
     ifill = f.addColor(L"Fill", a.propInt("fill", -1), true);
     iline = f.addColor(L"Line color", a.propInt("line", 0x555555), true);
     ilw = f.addNumber(L"Line width", a.propInt("lw", 1), 0, 50);

@@ -1,4 +1,5 @@
 #include "export.h"
+#include "arrange.h"
 #include "table.h"
 #include "media.h"
 
@@ -117,6 +118,23 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
       }
       case ObjType::Rect: {
         int kind = ob.propInt("kind", 0);
+        Segment sg;
+        if (shapeSegment(kind, 0, 0, ob.w, ob.h, sg)) {  // line or arrow: inline SVG
+          int line = ob.propInt("line", 0x555555), lw = std::max(1, ob.propInt("lw", 1));
+          std::string col = css(line >= 0 ? line : 0x555555);
+          o += "<svg style=\"" + pos + "overflow:visible;\" viewBox=\"0 0 " + std::to_string(ob.w) + " " + std::to_string(ob.h) +
+               "\"><line x1=\"" + std::to_string(sg.x1) + "\" y1=\"" + std::to_string(sg.y1) + "\" x2=\"" + std::to_string(sg.x2) +
+               "\" y2=\"" + std::to_string(sg.y2) + "\" stroke=\"" + col + "\" stroke-width=\"" + std::to_string(lw) + "\"/>";
+          if (sg.arrow) {
+            Pt hp[3];
+            arrowHead(sg, std::max(8, lw * 5), std::max(4, lw * 2), hp);
+            o += "<polygon points=\"" + std::to_string(hp[0].x) + "," + std::to_string(hp[0].y) + " " + std::to_string(hp[1].x) +
+                 "," + std::to_string(hp[1].y) + " " + std::to_string(hp[2].x) + "," + std::to_string(hp[2].y) + "\" fill=\"" + col +
+                 "\"/>";
+          }
+          o += "</svg>\n";
+          break;
+        }
         if (kind == 2 || kind == 3) {  // diamond / triangle: an inline SVG polygon
           int w = ob.w, h = ob.h, line = ob.propInt("line", 0x555555), lw = ob.propInt("lw", 1);
           std::string pts = kind == 2 ? std::to_string(w / 2) + ",0 " + std::to_string(w) + "," + std::to_string(h / 2) + " " +

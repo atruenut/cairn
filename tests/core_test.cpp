@@ -1304,6 +1304,38 @@ static void testShapesExport() {
   CHECK(html.find("<polygon points=\"50,0 100,60 0,60\"") != std::string::npos);        // triangle
 }
 
+static void testLines() {
+  Segment g;
+  CHECK(!shapeSegment(0, 0, 0, 10, 10, g) && !shapeSegment(3, 0, 0, 10, 10, g) && !shapeSegment(10, 0, 0, 10, 10, g));
+  CHECK(shapeSegment(4, 10, 20, 100, 40, g) && g.x1 == 10 && g.y1 == 40 && g.x2 == 110 && g.y2 == 40 && !g.arrow);
+  CHECK(shapeSegment(5, 10, 20, 100, 40, g) && g.x1 == 60 && g.y1 == 20 && g.x2 == 60 && g.y2 == 60);
+  CHECK(shapeSegment(6, 0, 0, 50, 30, g) && g.x1 == 0 && g.y1 == 0 && g.x2 == 50 && g.y2 == 30);
+  CHECK(shapeSegment(7, 0, 0, 50, 30, g) && g.x1 == 0 && g.y1 == 30 && g.x2 == 50 && g.y2 == 0);
+  CHECK(shapeSegment(8, 0, 0, 50, 30, g) && g.arrow && g.x2 == 50 && g.y2 == 15);
+  CHECK(shapeSegment(9, 0, 0, 50, 30, g) && g.arrow && g.x2 == 25 && g.y2 == 30);
+  Pt h[3];
+  shapeSegment(8, 0, 0, 100, 20, g);  // points right, tip at (100,10)
+  arrowHead(g, 10, 4, h);
+  CHECK(h[0].x == 100 && h[0].y == 10 && h[1].x == 90 && h[2].x == 90 && h[1].y != h[2].y &&
+        std::abs(h[1].y - h[2].y) == 8);
+  Segment z{5, 5, 5, 5, true};
+  arrowHead(z, 10, 4, h);
+  CHECK(h[1].x == 5 && h[2].y == 5);
+  auto d = Document::create(tmpPath("cairn_lines.cairn"), false);
+  int64_t pg = d->addPage("L");
+  Object o;
+  o.type = ObjType::Rect;
+  o.w = 100; o.h = 40;
+  o.setPropInt("kind", 8);
+  d->addObject(pg, o);
+  bool svg = false;
+  for (const ExportFile& f : exportSite(*d, "t"))
+    if (f.data.find("<line x1=\"0\" y1=\"20\" x2=\"100\" y2=\"20\"") != std::string::npos &&
+        f.data.find("<polygon points=\"100,20 92,") != std::string::npos)
+      svg = true;
+  CHECK(svg);
+}
+
 static void testScripts() {
   std::printf("scripts\n");
   using namespace cairn;
@@ -1397,6 +1429,7 @@ int main() {
   testScripts();
   testArrange();
   testShapesExport();
+  testLines();
   testPageOrder();
   testUrls();
   testProps();

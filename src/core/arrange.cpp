@@ -50,4 +50,30 @@ std::vector<Box> arrangeBoxes(const std::vector<Box>& in, Arrange mode) {
   return out;
 }
 
+bool shapeSegment(int kind, int x, int y, int w, int h, Segment& o) {
+  int cx = x + w / 2, cy = y + h / 2;
+  switch (kind) {
+    case 4: o = {x, cy, x + w, cy, false}; return true;
+    case 5: o = {cx, y, cx, y + h, false}; return true;
+    case 6: o = {x, y, x + w, y + h, false}; return true;
+    case 7: o = {x, y + h, x + w, y, false}; return true;
+    case 8: o = {x, cy, x + w, cy, true}; return true;
+    case 9: o = {cx, y, cx, y + h, true}; return true;
+  }
+  return false;
+}
+
+void arrowHead(const Segment& s, int len, int half, Pt out[3]) {
+  double dx = s.x2 - s.x1, dy = s.y2 - s.y1, d = std::sqrt(dx * dx + dy * dy);
+  out[0] = {s.x2, s.y2};
+  if (d < 1e-9) {
+    out[1] = out[2] = out[0];
+    return;
+  }
+  double ux = dx / d, uy = dy / d;
+  double bx = s.x2 - ux * len, by = s.y2 - uy * len;
+  out[1] = {(int)std::lround(bx - uy * half), (int)std::lround(by + ux * half)};
+  out[2] = {(int)std::lround(bx + uy * half), (int)std::lround(by - ux * half)};
+}
+
 }  // namespace cairn

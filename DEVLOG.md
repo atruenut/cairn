@@ -293,6 +293,20 @@ under Wine: an ellipse and a triangle drawn on a page, fill and outline right.
 Not done: hit-testing still uses the bounding box, so clicking the empty corner of a triangle
 selects it. Fine for now.
 
+## Entry 35: lines and arrows
+
+Boxes-and-arrows is half of what people do on a page, and I had the boxes. The Shape dropdown now
+has six more entries: horizontal line, vertical line, two diagonals, arrow right, arrow down. Still
+the same object type with a `kind` number, so no migration. The geometry (which two corners a
+kind connects, where the arrowhead's three points go) lives in the core with the Align code, as
+pure functions with 10 checks, because the arrowhead is the only trigonometry in the project and I
+did not want to debug it by squinting at a window. The same functions feed the website export, so
+the picture and the page agree.
+
+Checked under Wine: an "Arrow (right)" shape draws a line with its head at the box's right edge.
+It is the default grey-blue, so on a busy page it is faint; pick a darker line colour. Lines
+still select by their bounding box, which is generous for a diagonal.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).
