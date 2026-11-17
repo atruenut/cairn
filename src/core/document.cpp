@@ -856,7 +856,7 @@ std::vector<int64_t> Document::importObjects(int64_t pageId, const std::string& 
     char tag = 0;
     if (std::sscanf(line.c_str(), "%c %d %d %d %d %d %llu %llu %llu %llu", &tag, &type, &x, &y, &w,
                     &h, &pl, &bl, &ml, &nlen) != 10 ||
-        tag != 'O' || type < 1 || type > 7)
+        tag != 'O' || type < 1 || type > 8)
       return {};
     unsigned long long total = pl + bl + ml + nlen;
     if (total < pl || total > payload.size() - pos) return {};  // overflow or truncated
@@ -1003,17 +1003,19 @@ void Document::seedStarter() {
                     "if n >= 3 then ...   only do the rest of the line when n is 3 or more",
                     13, false, 0x33414F));
   so.push_back(text(40, 410, 880, 28, "Everything a script can do", 16, true, 0x1F3A5F));
-  so.push_back(text(40, 446, 880, 150,
+  so.push_back(text(40, 446, 880, 190,
                     "goto \"Page title\"   go to a page (also: goto next, prev, first, last, and back)\n"
                     "set x = ...          remember a number or text (+ joins text)\n"
                     "text \"Name\" = ...   change a text box (give it a Script name in its Properties)\n"
                     "play \"Name\"  /  stop   start or stop an audio clip\n"
                     "open \"address\"      open a web address or file\n"
                     "say ...              show a message box\n\n"
+                    "A script can also belong to the page: Edit > Add On-Open Script. It runs every time the page "
+                    "is opened in Run mode (handy for resetting a counter or jumping somewhere).\n\n"
                     "Scripts are deliberately small and safe: no loops, no changing files, no network "
                     "access beyond opening what a normal link button would open.",
                     13, false, 0x222222));
-  so.push_back(button(40, 620, 200, 44, "Back to the tour", tour));
+  so.push_back(button(40, 660, 200, 44, "Back to the tour", tour));
   addObjects(scripts, std::move(so), "Starter");
   clearHistory();
 }

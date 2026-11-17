@@ -181,6 +181,7 @@ const wchar_t* typeName(ObjType t) {
     case ObjType::Folder: return L"Folder listing";
     case ObjType::Table: return L"Table";
     case ObjType::Audio: return L"Audio";
+    case ObjType::Script: return L"On-open script";
   }
   return L"Object";
 }
@@ -465,6 +466,7 @@ void Canvas::setPage(int64_t id) {
     scrollX_ = scrollY_ = 0;
     audioStop();  // sound belongs to the page it was started on
     audioAutoplay();
+    runOpenScripts();
   }
   updateScroll();
   InvalidateRect(hwnd_, nullptr, FALSE);
@@ -726,6 +728,9 @@ void Canvas::drawObject(HDC dc, const Object& o, bool pressed) {
       break;
     case ObjType::Audio:
       drawAudio(dc, o, r);
+      break;
+    case ObjType::Script:
+      drawScriptNote(dc, o, r);
       break;
     case ObjType::Button: {
       int fill = o.propInt("fill", -1);
@@ -1786,6 +1791,9 @@ void Canvas::addObject(ObjType t, int cx, int cy) {
     o.w = 280; o.h = 220;
     o.setProp("path", ".");
     o.setPropInt("size", 12);
+  } else if (t == ObjType::Script) {
+    o.w = 280; o.h = 56;
+    o.setProp("script", "# These lines run each time this page is opened in Run mode.\nsay \"Hello from this page\"");
   } else if (t == ObjType::Button) {
     o.w = 160; o.h = 40;
     o.setProp("label", "Button");
@@ -1802,7 +1810,7 @@ void Canvas::addObject(ObjType t, int cx, int cy) {
   sel_ = {id};
   InvalidateRect(hwnd_, nullptr, FALSE);
   notify();
-  if (t == ObjType::Folder || t == ObjType::Table) editProperties();
+  if (t == ObjType::Folder || t == ObjType::Table || t == ObjType::Script) editProperties();
   else if (t != ObjType::Rect) beginTextEdit();
 }
 
@@ -1920,6 +1928,9 @@ void Canvas::editProperties() {
     itext = f.addText(L"Name", widen(a.prop("name")));
     ifit = f.addCheck(L"Loop", a.propInt("loop", 0) != 0);
     irestore = f.addCheck(L"Play when the page opens (Run mode)", a.propInt("auto", 0) != 0);
+  } else if (a.type == ObjType::Script) {
+    iscript = f.addText(L"Script: runs when this page opens in Run mode",
+                        toEditText(a.prop("script")), true);
   } else if (a.type == ObjType::Table) {
     itext = f.addText(L"Cells: one row per line, cells between | bars (a literal bar is \\|)",
                       toEditText(a.prop("data")), true);
@@ -1968,6 +1979,15 @@ void Canvas::editProperties() {
       script = o->prop("script");  // keep what was there
     }
     if (script.empty()) a.props.erase("script"); else a.setProp("script", script);
+  } else if (a.type == ObjType::Script) {
+    std::string script = fromEditText(f.text(iscript));
+    ScriptResult sr = checkScript(script);
+    if (!sr.ok) {
+      MessageBoxW(GetParent(hwnd_), (L"The script was not saved. Line " + std::to_wstring(sr.line) + L": " + widen(sr.error)).c_str(),
+                  L"Cairn", MB_OK | MB_ICONWARNING);
+      script = o->prop("script");
+    }
+    a.setProp("script", script);
   } else if (a.type == ObjType::Audio) {
     a.setProp("name", narrow(f.text(itext)));
     a.setPropInt("loop", f.check(ifit) ? 1 : 0);
@@ -2809,6 +2829,25 @@ void Canvas::audioNotify(WPARAM w, LPARAM dev) {
   audioStop();  // finished or failed
 }
 
+// Page scripts (the "On-open script" object) run when a page is shown in Run mode. Two pages whose scripts send
+// you to each other would never stop, so a chain of automatic opens is cut after a few hops.
+void Canvas::runOpenScripts() {
+  static int depth = 0;
+  if (edit_ || !doc_ || depth >= 4) return;
+  const Page* p = curPage();
+  if (!p) return;
+  std::vector<std::string> scripts;
+  for (const Object& o : p->objects)
+    if (o.type == ObjType::Script && !o.prop("script").empty()) scripts.push_back(o.prop("script"));
+  ++depth;
+  for (const std::string& s : scripts) {
+    int64_t before = pageId_;
+    runButtonScript(s);
+    if (pageId_ != before) break;  // the script moved on; the rest belongs to a page we have left
+  }
+  --depth;
+}
+
 void Canvas::audioAutoplay() {
   if (edit_ || !doc_) return;
   const Page* p = curPage();
@@ -2865,6 +2904,31 @@ void Canvas::audioClick(const Object& o, int x, int y) {
     else if (!audioStart(o)) fail();
   }
   InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+// In Edit mode an on-open script is a small dashed note so it can be found, moved and opened; in Run mode it is
+// invisible (the player just sees whatever the script does).
+void Canvas::drawScriptNote(HDC dc, const Object& o, const RECT& r) {
+  if (!edit_) return;
+  HBRUSH bg = CreateSolidBrush(RGB(255, 249, 214));
+  FillRect(dc, &r, bg);
+  DeleteObject(bg);
+  HPEN pen = CreatePen(PS_DASH, 1, RGB(160, 140, 60));
+  HGDIOBJ op = SelectObject(dc, pen), ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
+  Rectangle(dc, r.left, r.top, r.right, r.bottom);
+  SelectObject(dc, op);
+  SelectObject(dc, ob);
+  DeleteObject(pen);
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, RGB(90, 75, 20));
+  HGDIOBJ of = SelectObject(dc, fontFor(12, false));
+  std::string src = o.prop("script");
+  size_t n = 0;
+  for (char ch : src) if (ch == '\n') ++n;
+  std::wstring t = L"On-open script (" + std::to_wstring(n + 1) + L" lines, runs in Run mode)\n" + widen(src.substr(0, src.find('\n')));
+  RECT tr{r.left + 6, r.top + 4, r.right - 6, r.bottom - 4};
+  DrawTextW(dc, t.c_str(), (int)t.size(), &tr, DT_NOPREFIX | DT_END_ELLIPSIS | DT_WORDBREAK);
+  SelectObject(dc, of);
 }
 
 void Canvas::drawAudio(HDC dc, const Object& o, const RECT& r) {

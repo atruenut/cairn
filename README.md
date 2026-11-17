@@ -105,6 +105,10 @@ copying objects between pages with Ctrl+C / Ctrl+V. The second pane starts in Ru
 between the panes to resize them; whether the split was on, and the divider position, are remembered between
 sessions (the page shown in the second pane is not).
 
+**On-open scripts.** Edit > Add On-Open Script puts a script on the page itself (a dashed yellow note in Edit
+mode, invisible in Run mode). It runs every time the page is opened in Run mode, using the same commands as button
+scripts. A chain of pages that send each other onward stops after a few hops instead of looping forever.
+
 **Text boxes** grow taller while you type, so the text is never cut off (they never shrink on their own).
 
 **Audio.** Edit > Add Audio (or drop a file on the page) embeds a WAV, MP3, M4A, WMA or MIDI clip in the file.
@@ -155,7 +159,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.22.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.23.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

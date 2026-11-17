@@ -206,6 +206,19 @@ right pane opened on "No page selected". Restoring after the page is navigated f
 under Wine by dragging, closing and reopening. Still not persisted: which page the second pane
 shows, and per-pane history.
 
+## Entry 29: scripts that belong to the page
+
+I had planned a page-level "on open" script as a page property, which would have meant a
+schema change. Then I noticed an object can do the job: a new object type, "On-open script",
+that is a dashed yellow note in Edit mode and invisible in Run mode. It gets undo, copy and
+paste, duplication and cross-file transfer for free, and old files and old versions of Cairn
+are unaffected (the importer's type range just grows to 8; a file with one opened in an older
+build would show an "Object" it cannot draw, nothing worse).
+
+Danger worth designing for: page A's script says goto B, page B's says goto A. Automatic opens
+now stop after four hops. Under Wine, an on-open script of `goto "Rich"` on Welcome sent me
+straight to Rich when I opened Welcome from the list. The starter scripting page mentions it.
+
 ### TODO / known gaps
 
 - Re-vendor the official SQLite amalgamation from sqlite.org and diff it

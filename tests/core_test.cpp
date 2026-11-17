@@ -364,6 +364,16 @@ static void testTransfer() {
   CHECK(fids.size() == 1 && b->object(fids[0]) && b->object(fids[0])->type == ObjType::Folder &&
         b->object(fids[0])->prop("path") == "docs\\sub");
 
+  // An on-open script object copies between documents like any other and keeps its text.
+  Object so;
+  so.type = ObjType::Script;
+  so.w = 100; so.h = 40;
+  so.setProp("script", "goto \"Tour\"");
+  int64_t sid = a->addObject(pageA, so);
+  auto sids = b->importObjects(pageB, a->exportObjects({sid}), 0, 0);
+  CHECK(sids.size() == 1 && b->object(sids[0]) && b->object(sids[0])->type == ObjType::Script &&
+        b->object(sids[0])->prop("script") == "goto \"Tour\"");
+
   // Hostile / damaged payloads must import nothing and never crash.
   size_t before = b->page(pageB)->objects.size();
   std::vector<std::string> bad = {

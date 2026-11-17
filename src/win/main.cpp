@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.22.0";
+constexpr const char* kVersion = "0.23.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -39,7 +39,7 @@ enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_CANVAS2, IDC_STATUS, IDC_LINKLABEL,
 
   IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
-  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
+  IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_EDIT_ADDONOPEN, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK,
   IDM_PAGE_NEW, IDM_PAGE_RENAME, IDM_PAGE_DELETE, IDM_PAGE_PROPS, IDM_PAGE_BACK, IDM_PAGE_FORWARD,
@@ -907,6 +907,7 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_EDIT_ADDBUTTON, L"Add Button", L"Ctrl+Shift+B"},
     {IDM_EDIT_ADDRECT, L"Add Rectangle", L"Ctrl+Shift+R"},
     {IDM_EDIT_ADDFOLDER, L"Add Folder Listing", L""},
+    {IDM_EDIT_ADDONOPEN, L"Add On-Open Script", L""},
     {IDM_EDIT_ADDTABLE, L"Add Table", L""},
     {IDM_EDIT_ADDAUDIO, L"Add Audio...", L""},
     {IDM_EDIT_ADDIMAGE, L"Add Image", L"Ctrl+Shift+I"},
@@ -1163,6 +1164,7 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_EDIT_ADDBUTTON: cv().addObject(ObjType::Button); break;
       case IDM_EDIT_ADDRECT: cv().addObject(ObjType::Rect); break;
       case IDM_EDIT_ADDFOLDER: cv().addObject(ObjType::Folder); break;
+      case IDM_EDIT_ADDONOPEN: cv().addObject(ObjType::Script); break;
       case IDM_EDIT_ADDTABLE: cv().addObject(ObjType::Table); break;
       case IDM_EDIT_ADDAUDIO: cmdAddAudio(); break;
       case IDM_TBL_ROW_ABOVE: cv().tableOp(0); break;
@@ -1298,6 +1300,7 @@ HMENU buildMenu() {
   add(edit, IDM_EDIT_ADDBUTTON, L"Add &Button\tCtrl+Shift+B");
   add(edit, IDM_EDIT_ADDRECT, L"Add Rect&angle\tCtrl+Shift+R");
   add(edit, IDM_EDIT_ADDFOLDER, L"Add &Folder Listing");
+  add(edit, IDM_EDIT_ADDONOPEN, L"Add &On-Open Script");
   add(edit, IDM_EDIT_ADDTABLE, L"Add Ta&ble");
   add(edit, IDM_EDIT_ADDAUDIO, L"Add Au&dio...");
   add(edit, IDM_EDIT_ADDIMAGE, L"Add &Image...\tCtrl+Shift+I");

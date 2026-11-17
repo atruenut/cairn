@@ -174,6 +174,8 @@ class Canvas {
   bool audioStart(const Object& o);   // writes the clip to a temp file and plays it; false if it cannot
   void audioStop();
   void audioNotify(WPARAM w, LPARAM dev);  // MM_MCINOTIFY: the clip finished (loop it) or failed
+  void runOpenScripts();
+  void drawScriptNote(HDC dc, const Object& o, const RECT& r);
   void audioPauseResume();
   void audioSeek(double frac);        // 0..1 of the clip
   void audioApplyVolume();

@@ -144,6 +144,8 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         }
         break;
       }
+      case ObjType::Script:
+        break;  // behaviour only; the exported site has no scripts
       case ObjType::Folder:
         break;  // a live view of the viewer's own disk; nothing to publish
       case ObjType::Image: {
