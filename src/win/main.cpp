@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.27.0";
+constexpr const char* kVersion = "0.28.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -946,7 +946,7 @@ struct Palette {
 const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[] = {
     {IDM_EDIT_ADDTEXT, L"Add Text", L"Ctrl+Shift+T"},
     {IDM_EDIT_ADDBUTTON, L"Add Button", L"Ctrl+Shift+B"},
-    {IDM_EDIT_ADDRECT, L"Add Rectangle", L"Ctrl+Shift+R"},
+    {IDM_EDIT_ADDRECT, L"Add Shape", L"Ctrl+Shift+R"},
     {IDM_EDIT_ADDFOLDER, L"Add Folder Listing", L""},
     {IDM_EDIT_ADDONOPEN, L"Add On-Open Script", L""},
     {IDM_EDIT_ADDTABLE, L"Add Table", L""},
@@ -1722,7 +1722,7 @@ const std::vector<TbSpec>& tbSpecs() {
       {0, -1, -1, nullptr, nullptr, false},
       {IDM_EDIT_ADDTEXT, -1, I_TEXT, L"Text", L"Add a text box (Ctrl+Shift+T)", false},
       {IDM_EDIT_ADDBUTTON, -1, I_BUTTON, L"Button", L"Add a button (Ctrl+Shift+B)", false},
-      {IDM_EDIT_ADDRECT, -1, I_SHAPE, L"Shape", L"Add a rectangle (Ctrl+Shift+R)", false},
+      {IDM_EDIT_ADDRECT, -1, I_SHAPE, L"Shape", L"Add a shape: rectangle, ellipse, diamond or triangle (Ctrl+Shift+R)", false},
       {IDM_EDIT_ADDIMAGE, -1, I_IMAGE, L"Image", L"Add images (Ctrl+Shift+I)", false},
       {0, -1, -1, nullptr, nullptr, false},
       {IDM_FMT_BOLD, -1, I_BOLD, nullptr, L"Bold (Ctrl+B)", false},
@@ -1891,7 +1891,7 @@ void canvasContextMenu(POINT screen) {
     sep();
     add(IDM_CTX_ADDTEXT, L"Add Text Here");
     add(IDM_CTX_ADDBUTTON, L"Add Button Here");
-    add(IDM_CTX_ADDRECT, L"Add Rectangle Here");
+    add(IDM_CTX_ADDRECT, L"Add Shape Here");
     add(IDM_CTX_ADDIMAGE, L"Add Image Here...");
     sep();
     add(IDM_EDIT_SELECTALL, L"Select All\tCtrl+A");

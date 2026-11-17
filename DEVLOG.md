@@ -280,6 +280,19 @@ and the page still exists. No schema change, and a different file cannot be conf
 Wine: right pane on Rich, closed, reopened: split back, divider back, right pane on Rich, left on
 Welcome.
 
+## Entry 34: more than rectangles
+
+The "Shape" button added only rectangles, which got old. A rectangle object now has a Shape
+property: rectangle, ellipse, diamond or triangle. No new object type and no schema change; it is
+one more property (`kind`), so old files and old builds still work (an old build just draws the
+box). Drawing is plain GDI: `Ellipse` and `Polygon` with the same fill and pen as before. The
+website export turns an ellipse into a CSS `border-radius:50%` and the polygons into inline SVG,
+which a CSS border cannot do. Tested in the core (3 new checks on the exported HTML) and checked
+under Wine: an ellipse and a triangle drawn on a page, fill and outline right.
+
+Not done: hit-testing still uses the bounding box, so clicking the empty corner of a triangle
+selects it. Fine for now.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).

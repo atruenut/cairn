@@ -1284,6 +1284,26 @@ static void testArrange() {
   CHECK(arrangeBoxes({}, Arrange::Top).empty());
 }
 
+static void testShapesExport() {
+  auto d = Document::create(tmpPath("cairn_shapes.cairn"), false);
+  int64_t pg = d->addPage("S");
+  auto shape = [&](int kind) {
+    Object o;
+    o.type = ObjType::Rect;
+    o.w = 100; o.h = 60;
+    o.setPropInt("fill", 0xFF0000);
+    o.setPropInt("kind", kind);
+    d->addObject(pg, o);
+  };
+  for (int k = 0; k < 4; ++k) shape(k);
+  std::string html;
+  for (const ExportFile& f : exportSite(*d, "t"))
+    if (f.data.find("<svg") != std::string::npos || f.data.find("border-radius:50%") != std::string::npos) html = f.data;
+  CHECK(html.find("border-radius:50%") != std::string::npos);          // ellipse
+  CHECK(html.find("<polygon points=\"50,0 100,30 50,60 0,30\"") != std::string::npos);  // diamond
+  CHECK(html.find("<polygon points=\"50,0 100,60 0,60\"") != std::string::npos);        // triangle
+}
+
 static void testScripts() {
   std::printf("scripts\n");
   using namespace cairn;
@@ -1376,6 +1396,7 @@ int main() {
   testAudioSniff();
   testScripts();
   testArrange();
+  testShapesExport();
   testPageOrder();
   testUrls();
   testProps();

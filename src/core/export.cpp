@@ -116,7 +116,22 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         break;
       }
       case ObjType::Rect: {
+        int kind = ob.propInt("kind", 0);
+        if (kind == 2 || kind == 3) {  // diamond / triangle: an inline SVG polygon
+          int w = ob.w, h = ob.h, line = ob.propInt("line", 0x555555), lw = ob.propInt("lw", 1);
+          std::string pts = kind == 2 ? std::to_string(w / 2) + ",0 " + std::to_string(w) + "," + std::to_string(h / 2) + " " +
+                                           std::to_string(w / 2) + "," + std::to_string(h) + " 0," + std::to_string(h / 2)
+                                      : std::to_string(w / 2) + ",0 " + std::to_string(w) + "," + std::to_string(h) + " 0," +
+                                           std::to_string(h);
+          o += "<svg style=\"" + pos + "\" viewBox=\"0 0 " + std::to_string(w) + " " + std::to_string(h) +
+               "\"><polygon points=\"" + pts + "\" fill=\"" +
+               (ob.propInt("fill", -1) >= 0 ? css(ob.propInt("fill", 0)) : std::string("none")) + "\" stroke=\"" +
+               (line >= 0 && lw > 0 ? css(line) : std::string("none")) + "\" stroke-width=\"" + std::to_string(lw) +
+               "\"/></svg>\n";
+          break;
+        }
         std::string st = pos;
+        if (kind == 1) st += "border-radius:50%;";
         if (ob.propInt("fill", -1) >= 0) st += "background:" + css(ob.propInt("fill", 0)) + ";";
         int line = ob.propInt("line", 0x555555), lw = ob.propInt("lw", 1);
         if (line >= 0 && lw > 0) st += "border:" + std::to_string(lw) + "px solid " + css(line) + ";";

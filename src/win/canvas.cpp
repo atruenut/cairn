@@ -177,7 +177,7 @@ const wchar_t* typeName(ObjType t) {
   switch (t) {
     case ObjType::Text: return L"Text";
     case ObjType::Button: return L"Button";
-    case ObjType::Rect: return L"Rectangle";
+    case ObjType::Rect: return L"Shape";
     case ObjType::Image: return L"Image";
     case ObjType::Folder: return L"Folder listing";
     case ObjType::Table: return L"Table";
@@ -651,7 +651,17 @@ void Canvas::drawObject(HDC dc, const Object& o, bool pressed) {
                                        : (HPEN)GetStockObject(NULL_PEN);
       SelectObject(dc, br);
       SelectObject(dc, pen);
-      if (rad > 0) {
+      int kind = o.propInt("kind", 0);
+      if (kind == 1) {
+        Ellipse(dc, r.left, r.top, r.right + 1, r.bottom + 1);
+      } else if (kind == 2) {
+        POINT pts[4] = {{(r.left + r.right) / 2, r.top}, {r.right, (r.top + r.bottom) / 2},
+                        {(r.left + r.right) / 2, r.bottom}, {r.left, (r.top + r.bottom) / 2}};
+        Polygon(dc, pts, 4);
+      } else if (kind == 3) {
+        POINT pts[3] = {{(r.left + r.right) / 2, r.top}, {r.right, r.bottom}, {r.left, r.bottom}};
+        Polygon(dc, pts, 3);
+      } else if (rad > 0) {
         int d = std::max(2, (int)std::lround(2 * rad * scale()));
         RoundRect(dc, r.left, r.top, r.right + 1, r.bottom + 1, d, d);
       } else {
@@ -1962,7 +1972,7 @@ void Canvas::editProperties() {
   int iname = f.addText(L"Script name (so scripts can find it; optional)", widen(a.prop("sname")));
   int iscript = -1;
   int itext = -1, ialign = -1, isize = -1, ibold = -1, icolor = -1, ifill = -1, itarget = -1;
-  int iline = -1, ilw = -1, iround = -1, iopen = -1, ifit = -1, irestore = -1;
+  int ikind = -1, iline = -1, ilw = -1, iround = -1, iopen = -1, ifit = -1, irestore = -1;
   std::vector<int64_t> pageIds;
 
   if (a.type == ObjType::Text) {
@@ -2010,6 +2020,7 @@ void Canvas::editProperties() {
     ifit = f.addCombo(L"Scaling", {L"Stretch to the box", L"Keep proportions"}, a.propInt("fit", 1) ? 1 : 0);
     irestore = f.addCheck(L"Restore original proportions (keeps width)", false);
   } else {
+    ikind = f.addCombo(L"Shape", {L"Rectangle", L"Ellipse", L"Diamond", L"Triangle"}, std::clamp(a.propInt("kind", 0), 0, 3));
     ifill = f.addColor(L"Fill", a.propInt("fill", -1), true);
     iline = f.addColor(L"Line color", a.propInt("line", 0x555555), true);
     ilw = f.addNumber(L"Line width", a.propInt("lw", 1), 0, 50);
@@ -2079,6 +2090,7 @@ void Canvas::editProperties() {
   if (iline >= 0) a.setPropInt("line", f.color(iline));
   if (ilw >= 0) a.setPropInt("lw", f.number(ilw));
   if (iround >= 0) a.setPropInt("round", f.number(iround));
+  if (ikind >= 0) a.setPropInt("kind", f.combo(ikind));
   doc_->updateObject(a, "Properties");
 }
 
