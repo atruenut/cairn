@@ -1345,7 +1345,7 @@ HMENU buildMenu() {
   sep(edit);
   add(edit, IDM_EDIT_ADDTEXT, L"Add &Text\tCtrl+Shift+T");
   add(edit, IDM_EDIT_ADDBUTTON, L"Add &Button\tCtrl+Shift+B");
-  add(edit, IDM_EDIT_ADDRECT, L"Add Rect&angle\tCtrl+Shift+R");
+  add(edit, IDM_EDIT_ADDRECT, L"Add &Shape\tCtrl+Shift+R");
   add(edit, IDM_EDIT_ADDFOLDER, L"Add &Folder Listing");
   add(edit, IDM_EDIT_ADDONOPEN, L"Add &On-Open Script");
   add(edit, IDM_EDIT_ADDTABLE, L"Add Ta&ble");
