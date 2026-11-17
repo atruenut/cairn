@@ -194,6 +194,18 @@ is playing, and aborted/superseded notices (which my own seek and pause calls ca
 ignored. Wine has no sound device, so I verified drawing and clicking only; I could not hear
 anything, and seek/pause/volume on real codecs are unverified until Tom tries them.
 
+## Entry 28: a divider you can drag
+
+Small round, two things from my own list. The divider between the two panes in split view
+can now be dragged (15% to 85%), and the split view, with the divider position, comes back the
+next time Cairn starts. Both live in the settings file, not the document, because a split is
+how you are looking at a file rather than part of it.
+
+Wine caught one real bug: I first restored the split before the first page was shown, so the
+right pane opened on "No page selected". Restoring after the page is navigated fixed it. Checked
+under Wine by dragging, closing and reopening. Still not persisted: which page the second pane
+shows, and per-pane history.
+
 ### TODO / known gaps
 
 - Re-vendor the official SQLite amalgamation from sqlite.org and diff it

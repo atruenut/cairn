@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.21.0";
+constexpr const char* kVersion = "0.22.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -80,6 +80,9 @@ struct App {
 
   int splitX = 250;  // left pane width at 96 dpi
   bool dragSplit = false;
+  int paneFrac = 50;        // left pane's share of the canvas area in split view, percent
+  bool dragPane = false;
+  bool restoredSplit = false;
 
   std::wstring iniPath;
   bool startEdit = false;
@@ -146,6 +149,8 @@ void saveSettings() {
   writeIniInt(L"h", wp.rcNormalPosition.bottom - wp.rcNormalPosition.top);
   writeIniInt(L"max", wp.showCmd == SW_SHOWMAXIMIZED ? 1 : 0);
   writeIniInt(L"split", g.splitX);
+  writeIniInt(L"pane_split", g.split ? 1 : 0);
+  writeIniInt(L"pane_frac", g.paneFrac);
   writeIniInt(L"snap", cv().snap() ? 1 : 0);
   writeIniInt(L"edit", cv().editMode() ? 1 : 0);
 }
@@ -339,7 +344,7 @@ void layout() {
   int cx = leftW + splitW;
   int cw = std::max(10, (int)rc.right - cx), ch = std::max(10, bottom - top);
   if (g.split && g.canvas2.hwnd()) {
-    int half = (cw - splitW) / 2;
+    int half = std::clamp((cw - splitW) * g.paneFrac / 100, 40, std::max(40, cw - splitW - 40));
     MoveWindow(g.canvas.hwnd(), cx, top, half, ch, TRUE);
     MoveWindow(g.canvas2.hwnd(), cx + half + splitW, top, cw - half - splitW, ch, TRUE);
     ShowWindow(g.canvas2.hwnd(), SW_SHOW);
@@ -379,6 +384,10 @@ void setDoc(std::unique_ptr<Document> d) {
     refreshBacklinks();
     updateTitle();
     updateStatus();
+  }
+  if (!g.restoredSplit) {  // the first document of a run brings the split view back if it was open
+    g.restoredSplit = true;
+    if (readIniInt(L"pane_split", 0) != 0) setSplit(true);
   }
 }
 
@@ -1974,6 +1983,24 @@ bool overSplitter(int x) {
   return x >= lw && x < lw + S(5);
 }
 
+// The thin strip between the two canvases in split view (client coordinates of the main window).
+bool paneDividerRect(RECT& out) {
+  if (!g.split || !g.canvas2.hwnd()) return false;
+  RECT a, b;
+  GetWindowRect(g.canvas.hwnd(), &a);
+  GetWindowRect(g.canvas2.hwnd(), &b);
+  POINT tl{a.right, a.top}, br{b.left, a.bottom};
+  ScreenToClient(g.hwnd, &tl);
+  ScreenToClient(g.hwnd, &br);
+  out = {tl.x - S(1), tl.y, br.x + S(1), br.y};
+  return out.right > out.left;
+}
+
+bool overPaneDivider(POINT p) {
+  RECT r;
+  return paneDividerRect(r) && PtInRect(&r, p);
+}
+
 // ------------------------------------------------------------------ split view
 
 void wirePane(Canvas& c) {
@@ -2123,18 +2150,27 @@ LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       if (overSplitter((short)LOWORD(l))) {
         g.dragSplit = true;
         SetCapture(h);
+      } else if (overPaneDivider({(short)LOWORD(l), (short)HIWORD(l)})) {
+        g.dragPane = true;
+        SetCapture(h);
       }
       return 0;
     case WM_MOUSEMOVE:
-      if (g.dragSplit) {
+      if (g.dragPane) {
+        RECT rc;
+        GetClientRect(g.hwnd, &rc);
+        int cx = leftWidth(rc) + S(5), cw = std::max(10, (int)rc.right - cx);
+        g.paneFrac = std::clamp(((short)LOWORD(l) - cx) * 100 / cw, 15, 85);
+        layout();
+      } else if (g.dragSplit) {
         int x = (short)LOWORD(l);
         g.splitX = std::max(120, MulDiv(x - S(2), 96, g.dpi));
         layout();
       }
       return 0;
     case WM_LBUTTONUP:
-      if (g.dragSplit) {
-        g.dragSplit = false;
+      if (g.dragSplit || g.dragPane) {
+        g.dragSplit = g.dragPane = false;
         ReleaseCapture();
       }
       return 0;
@@ -2143,6 +2179,10 @@ LRESULT CALLBACK wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(h, &pt);
+        if (g.dragPane || overPaneDivider(pt)) {
+          SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+          return TRUE;
+        }
         if (g.dragSplit || overSplitter(pt.x)) {
           SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
           return TRUE;
@@ -2174,6 +2214,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int nShow) {
   g.startEdit = readIniInt(L"edit", 0) != 0;
   g.startSnap = readIniInt(L"snap", 1) != 0;
   g.splitX = std::clamp(readIniInt(L"split", 250), 120, 800);
+  g.paneFrac = std::clamp(readIniInt(L"pane_frac", 50), 15, 85);
 
   if (!Canvas::registerClass(hi)) return 1;
   WNDCLASSEXW wc{};
