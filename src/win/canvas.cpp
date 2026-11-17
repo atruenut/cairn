@@ -985,10 +985,7 @@ void Canvas::onLButtonDown(int x, int y, WPARAM keys) {
       return;
     }
     if (o && o->type == ObjType::Audio) {
-      if (audioObj_ == o->id) audioStop();
-      else if (!audioStart(*o))
-        MessageBoxW(GetParent(hwnd_), L"This clip can't be played on this computer.", L"Cairn", MB_OK | MB_ICONINFORMATION);
-      InvalidateRect(hwnd_, nullptr, FALSE);
+      audioClick(*o, x, y);
       return;
     }
     if (o && o->type == ObjType::Folder) {
@@ -1350,6 +1347,7 @@ void Canvas::endEdit(bool commit, bool refocus) {
   HWND e = editWnd_;
   int64_t id = editId_;
   editWnd_ = nullptr;  // first, so the WM_KILLFOCUS that DestroyWindow causes finds nothing to do
+  dragNow_.erase(editId_);  // drop the live-growth height; a commit below stores the real one
   editId_ = 0;
   std::wstring w = readEditText(e, editRich_);
   DestroyWindow(e);
@@ -1735,6 +1733,23 @@ void Canvas::pasteRichIntoEditor() {
   recordEdit(false);
 }
 
+// While typing in a text box, make the box (and the editor over it) taller as the text needs it.
+void Canvas::growEditor() {
+  if (!editWnd_ || !editIsText_ || !doc_ || editRow_ >= 0) return;
+  const Object* o = doc_->object(editId_);
+  if (!o || o->type != ObjType::Text) return;
+  Object cur = eff(*o);
+  std::string text = fromEditText(readEditText(editWnd_, editRich_));
+  int need = std::min(measureRichHeight(text, encodeRuns(editRuns_), o->propInt("size", 14), o->w), 4000);
+  if (need <= cur.h) return;
+  cur.h = need;
+  dragNow_[editId_] = cur;
+  RECT r = objRectPx(cur);
+  SetWindowPos(editWnd_, nullptr, r.left, r.top, std::max<int>(r.right - r.left, MulDiv(90, dpi_, 96)),
+               r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+  InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 int Canvas::measureRichHeight(const std::string& utf8, const std::string& runsEnc, int pt, int widthUnits) {
   RichModel rm = buildRich(utf8, runsEnc);
   HDC dc = GetDC(hwnd_);
@@ -2086,6 +2101,7 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
     }
     case WM_TIMER:
       if (w == 1) animTick();
+      else if (w == 2) InvalidateRect(hwnd_, nullptr, FALSE);  // moves the audio progress bar
       return 0;
     case WM_RBUTTONDOWN: {
       if (!doc_ || !curPage()) break;
@@ -2164,6 +2180,7 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
         syncEditRuns();
         applyEditStyling();
         recordEdit(true);
+        growEditor();
       }
       return 0;
     case WM_EDIT_FORMAT:
@@ -2190,7 +2207,7 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
       cellNavigate((int)w);
       return 0;
     case MM_MCINOTIFY:
-      audioNotify(w);
+      audioNotify(w, l);
       return 0;
   }
   return DefWindowProcW(hwnd_, m, w, l);
@@ -2678,6 +2695,27 @@ namespace {
 const wchar_t* kAlias = L"cairnaudio";
 }
 
+namespace {
+// One MCI query returning a number (0 when it fails).
+long mciNum(const wchar_t* what) {
+  wchar_t buf[64] = {0};
+  std::wstring cmd = std::wstring(L"status ") + kAlias + L" " + what;
+  if (mciSendStringW(cmd.c_str(), buf, 64, nullptr) != 0) return 0;
+  return _wtol(buf);
+}
+std::wstring clock(long ms) {
+  long s = std::max(0L, ms) / 1000;
+  wchar_t b[32];
+  swprintf(b, 32, L"%ld:%02ld", s / 60, s % 60);
+  return b;
+}
+}  // namespace
+
+void Canvas::audioApplyVolume() {
+  std::wstring v = std::wstring(L"setaudio ") + kAlias + L" volume to " + std::to_wstring(audioVol_);
+  mciSendStringW(v.c_str(), nullptr, 0, nullptr);  // not every device supports it; that is fine
+}
+
 bool Canvas::audioStart(const Object& o) {
   if (!doc_) return false;
   std::string data;
@@ -2705,34 +2743,70 @@ bool Canvas::audioStart(const Object& o) {
   }
   std::wstring open = L"open \"" + path + L"\" alias " + kAlias;
   if (mciSendStringW(open.c_str(), nullptr, 0, nullptr) != 0) return false;
+  mciSendStringW((std::wstring(L"set ") + kAlias + L" time format milliseconds").c_str(), nullptr, 0, nullptr);
+  audioApplyVolume();
   std::wstring play = std::wstring(L"play ") + kAlias + L" notify";
   if (mciSendStringW(play.c_str(), nullptr, 0, hwnd_) != 0) {
     mciSendStringW((std::wstring(L"close ") + kAlias).c_str(), nullptr, 0, nullptr);
     return false;
   }
+  audioDev_ = mciGetDeviceIDW(kAlias);
   audioObj_ = o.id;
   audioLoop_ = o.propInt("loop", 0) != 0;
+  audioPaused_ = false;
   audioTick_ = GetTickCount();
+  audioLen_ = mciNum(L"length");
+  for (Canvas* c : all_) if (c->hwnd_) SetTimer(c->hwnd_, 2, 250, nullptr);
   return true;
 }
 
 void Canvas::audioStop() {
   if (!audioObj_) return;
   audioObj_ = 0;  // first: the "aborted" notification this causes must find nothing to do
+  audioPaused_ = false;
+  audioDev_ = 0;
   mciSendStringW((std::wstring(L"stop ") + kAlias).c_str(), nullptr, 0, nullptr);
   mciSendStringW((std::wstring(L"close ") + kAlias).c_str(), nullptr, 0, nullptr);
+  for (Canvas* c : all_)
+    if (c->hwnd_) {
+      KillTimer(c->hwnd_, 2);
+      InvalidateRect(c->hwnd_, nullptr, FALSE);
+    }
+}
+
+void Canvas::audioPauseResume() {
+  if (!audioObj_) return;
+  if (audioPaused_) {
+    audioPaused_ = false;
+    if (mciSendStringW((std::wstring(L"play ") + kAlias + L" notify").c_str(), nullptr, 0, hwnd_) != 0) audioStop();
+  } else {
+    audioPaused_ = true;
+    mciSendStringW((std::wstring(L"pause ") + kAlias).c_str(), nullptr, 0, nullptr);
+  }
   for (Canvas* c : all_) if (c->hwnd_) InvalidateRect(c->hwnd_, nullptr, FALSE);
 }
 
-void Canvas::audioNotify(WPARAM w) {
-  if (!audioObj_) return;
+void Canvas::audioSeek(double frac) {
+  if (!audioObj_ || audioLen_ <= 0) return;
+  long to = (long)std::lround(std::clamp(frac, 0.0, 1.0) * audioLen_);
+  if (to >= audioLen_) to = std::max(0L, audioLen_ - 1);
+  mciSendStringW((std::wstring(L"seek ") + kAlias + L" to " + std::to_wstring(to)).c_str(), nullptr, 0, nullptr);
+  if (!audioPaused_) {
+    audioTick_ = GetTickCount();
+    if (mciSendStringW((std::wstring(L"play ") + kAlias + L" notify").c_str(), nullptr, 0, hwnd_) != 0) audioStop();
+  }
+  for (Canvas* c : all_) if (c->hwnd_) InvalidateRect(c->hwnd_, nullptr, FALSE);
+}
+
+void Canvas::audioNotify(WPARAM w, LPARAM dev) {
+  if (!audioObj_ || (UINT)dev != audioDev_) return;  // a stale note from a clip that was already replaced
+  if (w == MCI_NOTIFY_SUPERSEDED || w == MCI_NOTIFY_ABORTED) return;  // our own seek / pause / re-play
   if (w == MCI_NOTIFY_SUCCESSFUL && audioLoop_ && GetTickCount() - audioTick_ > 300) {
     audioTick_ = GetTickCount();
     mciSendStringW((std::wstring(L"seek ") + kAlias + L" to start").c_str(), nullptr, 0, nullptr);
     if (mciSendStringW((std::wstring(L"play ") + kAlias + L" notify").c_str(), nullptr, 0, hwnd_) == 0) return;
   }
-  if (w == MCI_NOTIFY_SUPERSEDED) return;
-  audioStop();  // finished, failed, or aborted
+  audioStop();  // finished or failed
 }
 
 void Canvas::audioAutoplay() {
@@ -2746,38 +2820,121 @@ void Canvas::audioAutoplay() {
     }
 }
 
+// The player's parts, in pixels. One function so drawing and clicking can never disagree.
+Canvas::AudioLayout Canvas::audioLayout(const RECT& r) const {
+  AudioLayout L{};
+  int h = r.bottom - r.top, w = r.right - r.left;
+  int pad = MulDiv(8, dpi_, 96);
+  int nameH = h >= MulDiv(44, dpi_, 96) ? MulDiv(18, dpi_, 96) : 0;
+  L.name = {r.left + pad, r.top + MulDiv(2, dpi_, 96), r.right - pad, r.top + nameH};
+  int rowTop = r.top + nameH, rowH = r.bottom - rowTop;
+  int d = std::clamp(rowH - pad, MulDiv(14, dpi_, 96), MulDiv(30, dpi_, 96));
+  int cy = rowTop + rowH / 2;
+  L.play = {r.left + pad, cy - d / 2, r.left + pad + d, cy - d / 2 + d};
+  int sd = d * 3 / 4;
+  L.stop = {L.play.right + pad / 2, cy - sd / 2, L.play.right + pad / 2 + sd, cy - sd / 2 + sd};
+  int volW = w >= MulDiv(230, dpi_, 96) ? MulDiv(54, dpi_, 96) : 0;
+  int timeW = w >= MulDiv(180, dpi_, 96) ? MulDiv(78, dpi_, 96) : 0;
+  int right = r.right - pad;
+  if (volW) { L.vol = {right - volW, cy - MulDiv(7, dpi_, 96), right, cy + MulDiv(7, dpi_, 96)}; right = L.vol.left - pad; }
+  if (timeW) { L.time = {right - timeW, rowTop, right, r.bottom}; right = L.time.left - pad / 2; }
+  L.bar = {L.stop.right + pad, cy - MulDiv(7, dpi_, 96), std::max<LONG>(L.stop.right + pad + MulDiv(20, dpi_, 96), right), cy + MulDiv(7, dpi_, 96)};
+  return L;
+}
+
+void Canvas::audioClick(const Object& o, int x, int y) {
+  RECT r = objRectPx(eff(o));
+  AudioLayout L = audioLayout(r);
+  POINT pt{x, y};
+  bool mine = audioObj_ == o.id;
+  auto fail = [&] {
+    MessageBoxW(GetParent(hwnd_), L"This clip can't be played on this computer.", L"Cairn", MB_OK | MB_ICONINFORMATION);
+  };
+  if (PtInRect(&L.vol, pt)) {
+    double f = (double)(x - L.vol.left) / std::max<LONG>(1, L.vol.right - L.vol.left);
+    audioVol_ = (int)std::lround(std::clamp(f, 0.0, 1.0) * 1000);
+    if (audioObj_) audioApplyVolume();
+  } else if (PtInRect(&L.stop, pt)) {
+    if (mine) audioStop();
+  } else if (PtInRect(&L.bar, pt)) {
+    double f = (double)(x - L.bar.left) / std::max<LONG>(1, L.bar.right - L.bar.left);
+    if (!mine && !audioStart(o)) fail();
+    else audioSeek(f);
+  } else {  // play button or anywhere else on the player: play / pause / resume
+    if (mine) audioPauseResume();
+    else if (!audioStart(o)) fail();
+  }
+  InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 void Canvas::drawAudio(HDC dc, const Object& o, const RECT& r) {
-  bool playing = audioObj_ == o.id;
-  HBRUSH bg = CreateSolidBrush(playing ? RGB(226, 238, 255) : RGB(240, 242, 246));
+  bool mine = audioObj_ == o.id;
+  bool playing = mine && !audioPaused_;
+  HBRUSH bg = CreateSolidBrush(mine ? RGB(226, 238, 255) : RGB(240, 242, 246));
   FillRect(dc, &r, bg);
   DeleteObject(bg);
   FrameRect(dc, &r, (HBRUSH)GetStockObject(GRAY_BRUSH));
-  int h = r.bottom - r.top, pad = MulDiv(8, dpi_, 96);
-  int d = std::max(12, h - 2 * pad);
-  RECT ic{r.left + pad, r.top + (h - d) / 2, r.left + pad + d, r.top + (h - d) / 2 + d};
+  AudioLayout L = audioLayout(r);
   HBRUSH accent = CreateSolidBrush(RGB(0x2F, 0x6F, 0xDE));
-  HGDIOBJ ob = SelectObject(dc, accent), op = SelectObject(dc, GetStockObject(NULL_PEN));
-  Ellipse(dc, ic.left, ic.top, ic.right, ic.bottom);
   HBRUSH white = CreateSolidBrush(RGB(255, 255, 255));
+  HBRUSH track = CreateSolidBrush(RGB(200, 206, 216));
+  HGDIOBJ op = SelectObject(dc, GetStockObject(NULL_PEN));
+
+  // play / pause
+  HGDIOBJ ob = SelectObject(dc, accent);
+  Ellipse(dc, L.play.left, L.play.top, L.play.right, L.play.bottom);
   SelectObject(dc, white);
-  int cx = (ic.left + ic.right) / 2, cy = (ic.top + ic.bottom) / 2, q = d / 4;
+  int d = L.play.right - L.play.left;
+  int cx = (L.play.left + L.play.right) / 2, cy = (L.play.top + L.play.bottom) / 2, q = d / 4;
   if (playing) {
-    Rectangle(dc, cx - q, cy - q, cx + q + 1, cy + q + 1);  // stop square
+    Rectangle(dc, cx - q, cy - q, cx - q / 3 + 1, cy + q + 1);
+    Rectangle(dc, cx + q / 3, cy - q, cx + q + 1, cy + q + 1);
   } else {
     POINT tri[3] = {{cx - q / 2, cy - q}, {cx - q / 2, cy + q}, {cx + q, cy}};
-    Polygon(dc, tri, 3);  // play triangle
+    Polygon(dc, tri, 3);
   }
-  SelectObject(dc, op);
+  // stop
+  SelectObject(dc, mine ? accent : track);
+  {
+    int sc = (L.stop.left + L.stop.right) / 2, sy = (L.stop.top + L.stop.bottom) / 2, sq = (L.stop.right - L.stop.left) / 4 + 1;
+    Rectangle(dc, sc - sq, sy - sq, sc + sq + 1, sy + sq + 1);
+  }
+  // progress bar
+  long pos = mine ? mciNum(L"position") : 0;
+  double frac = mine && audioLen_ > 0 ? std::clamp((double)pos / audioLen_, 0.0, 1.0) : 0.0;
+  auto slider = [&](const RECT& z, double f, bool knob) {
+    int mid = (z.top + z.bottom) / 2, th = std::max<int>(3, (z.bottom - z.top) / 4);
+    RECT t{z.left, mid - th / 2, z.right, mid - th / 2 + th};
+    FillRect(dc, &t, track);
+    RECT fl{z.left, t.top, z.left + (int)std::lround((z.right - z.left) * f), t.bottom};
+    FillRect(dc, &fl, accent);
+    if (knob) {
+      int kr = th + 2;
+      SelectObject(dc, accent);
+      Ellipse(dc, fl.right - kr, mid - kr, fl.right + kr, mid + kr);
+    }
+  };
+  slider(L.bar, frac, mine);
+  if (L.vol.right > L.vol.left) slider(L.vol, audioVol_ / 1000.0, true);
   SelectObject(dc, ob);
+  SelectObject(dc, op);
   DeleteObject(accent);
   DeleteObject(white);
+  DeleteObject(track);
+
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(30, 30, 30));
-  HGDIOBJ of = SelectObject(dc, fontFor(13, false));
-  std::wstring label = widen(o.prop("name", "audio"));
-  if (o.propInt("loop", 0)) label += L"  (loop)";
-  RECT tr{ic.right + pad, r.top, r.right - pad, r.bottom};
-  DrawTextW(dc, label.c_str(), (int)label.size(), &tr, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  HGDIOBJ of = SelectObject(dc, fontFor(12, false));
+  if (L.name.bottom > L.name.top) {
+    std::wstring label = widen(o.prop("name", "audio"));
+    if (o.propInt("loop", 0)) label += L"  (loop)";
+    DrawTextW(dc, label.c_str(), (int)label.size(), &L.name, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  }
+  if (L.time.right > L.time.left) {
+    std::wstring t = mine ? clock(pos) + (audioLen_ > 0 ? L" / " + clock(audioLen_) : L"") : L"0:00";
+    RECT tr = L.time;
+    DrawTextW(dc, t.c_str(), (int)t.size(), &tr, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_RIGHT);
+  }
   SelectObject(dc, of);
 }
 
@@ -2788,8 +2945,8 @@ bool Canvas::addAudioBytes(const std::string& bytes, const std::string& name, in
   endEdit(true, false);
   Object o;
   o.type = ObjType::Audio;
-  o.w = 280;
-  o.h = 48;
+  o.w = 340;
+  o.h = 56;
   placeNew(o.w, o.h, px, py, o.x, o.y);
   o.setProp("name", name);
   o.setProp("ext", ak.ext);

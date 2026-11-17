@@ -55,8 +55,15 @@ static void testBasicsAndPersistence() {
   int64_t pid;
   {
     auto d = Document::create(path, true);
-    CHECK(d->pages().size() == 2);
+    CHECK(d->pages().size() == 3);
     CHECK(!d->canUndo());  // seeding must not be undoable
+    {  // the starter scripting page must hold scripts that actually parse (a dry run needs only the syntax)
+      const Page* sp = d->page(d->pageByTitle("Buttons and scripts"));
+      CHECK(sp != nullptr);
+      int scripts = 0;
+      if (sp) for (const Object& o : sp->objects) if (o.type == ObjType::Button && !o.prop("script").empty()) ++scripts;
+      CHECK(scripts == 1);
+    }
     pid = d->addPage("Notes");
     int64_t oid = d->addObject(pid, textObj(10, 10, "hello world"));
     CHECK(oid > 0);
@@ -64,7 +71,7 @@ static void testBasicsAndPersistence() {
   }
   {
     auto d = Document::open(path);
-    CHECK(d->pages().size() == 3);
+    CHECK(d->pages().size() == 4);
     const Page* p = d->page(pid);
     CHECK(p && p->title == "Notes");
     CHECK(p && p->objects.size() == 1);
@@ -1253,6 +1260,13 @@ static void testScripts() {
   CHECK(run("set s = \"x\" + 1 + 2.5\nsay s", v, h).ok && h.log == "say:x12.5;");
   h.log.clear();
   CHECK(run("text \"Counter\" = \"Clicked \" + 3 + \" times\"", v, h).ok && h.log == "text:Counter=Clicked 3 times;");
+  {  // the counter on the starter "Buttons and scripts" page
+    ScriptVars cv;
+    MockHost ch;
+    const char* src = "set n = n + 1\ntext \"Counter\" = \"Clicked \" + n + \" times\"\nif n >= 3 then say \"That's three!\"";
+    for (int i = 0; i < 3; ++i) CHECK(run(src, cv, ch).ok);
+    CHECK(ch.log == "text:Counter=Clicked 1 times;text:Counter=Clicked 2 times;text:Counter=Clicked 3 times;say:That's three!;");
+  }
   h.log.clear();
   CHECK(run("set n = 5\nif n >= 5 then say \"big\"\nif n < 5 then say \"small\"\nif n == 5 then say \"eq\"\nif n != 5 then say \"ne\"\nif n then say \"truthy\"\nif 0 then say \"zero\"\nif \"\" then say \"empty\"",
             v, h).ok && h.log == "say:big;say:eq;say:truthy;");

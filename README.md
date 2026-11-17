@@ -78,7 +78,9 @@ it this way. The brackets stay in the text. Renaming a page rewrites `[[links]]`
 export turns them into real links between pages; Markdown export keeps them as `[[Title]]`, which other
 note tools understand.
 
-**Button scripts.** A button's Properties has a Script box. When it is not empty, clicking the button in Run mode
+**Button scripts.** Think of a script as a short recipe attached to a button: when you click the button in Run mode,
+Cairn does the recipe's steps in order. The "Buttons and scripts" page in the starter file has a working counter you can
+copy from. A button's Properties has a Script box. When it is not empty, clicking the button in Run mode
 runs the script instead of its Go-to / Open settings. It is a deliberately tiny language: no loops, no files, no
 network, and each line runs at most once, so a script always ends. One statement per line, `#` starts a comment:
 
@@ -102,8 +104,11 @@ page in the list to load it into the active pane. Handy for reading one page whi
 copying objects between pages with Ctrl+C / Ctrl+V. The second pane starts in Run mode; it is not remembered
 between sessions.
 
+**Text boxes** grow taller while you type, so the text is never cut off (they never shrink on their own).
+
 **Audio.** Edit > Add Audio (or drop a file on the page) embeds a WAV, MP3, M4A, WMA or MIDI clip in the file.
-In Run mode, click it to play and click again to stop; only one plays at a time. Properties has Loop and "Play
+In Run mode the player has a play/pause button, a stop button, a seek bar (click to jump), elapsed / total
+time and a volume slider (the volume carries over to later clips). Only one clip plays at a time. Properties has Loop and "Play
 when the page opens". Playback goes through Windows' own media codecs, so a format your Windows can't decode
 will say so instead of playing. Files are recognised by their contents, not their name, and clips are written
 to a temporary folder only while in use (removed on exit). The website export includes a player.
@@ -149,7 +154,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.20.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.21.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

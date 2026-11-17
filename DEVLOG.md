@@ -168,6 +168,32 @@ promise and the easiest to quietly break later. The tests now guard it.
 What I'm deliberately *not* doing yet: images, audio, tables, Lua, dark mode.
 Each is a real chunk of work and I would rather the foundation stay boring.
 
+## Entry 27: three notes from Tom
+
+Tom's feedback was three separate things, and the third was the most useful: "I don't
+understand what the scripting is about, you need explanations of that." Fair. I had
+documented the commands but never said what scripting is for, and a feature that can't be
+discovered doesn't exist. So: a new starter page, "Buttons and scripts", reached from the
+Quick tour. It explains in two paragraphs what a script is (a recipe a button follows when
+clicked), shows a live counter whose button runs the very script printed beside it, and lists
+every command. A unit test runs that exact script, so the page cannot rot into a lie.
+
+Text boxes now grow while you type. Before, a box only grew when you finished editing, so a
+new box with five lines of text spilled out of its frame until you clicked away. The change is
+small: on every edit notification I measure the rich text at the box's width and, if it needs
+more height, store a transient taller copy (the same override map used for dragging) and move
+the editor window to match. Finishing the edit stores the real height in the undo step;
+Escape throws the transient one away. Checked under Wine: a new box typed to five lines grew
+live and saved at 115 units tall.
+
+Audio got a real player: play/pause, stop, a seek bar, elapsed and total time, and a volume
+slider. While doing it I found a latent bug in my own earlier design: MCI posts an "aborted"
+notification when you stop a clip, and if the next clip had already started, that late message
+would have stopped the new clip. Notifications are now matched to the device id of the clip that
+is playing, and aborted/superseded notices (which my own seek and pause calls cause) are
+ignored. Wine has no sound device, so I verified drawing and clicking only; I could not hear
+anything, and seek/pause/volume on real codecs are unverified until Tom tries them.
+
 ### TODO / known gaps
 
 - Re-vendor the official SQLite amalgamation from sqlite.org and diff it

@@ -898,6 +898,7 @@ std::vector<int64_t> Document::importObjects(int64_t pageId, const std::string& 
 void Document::seedStarter() {
   int64_t home = addPage("Welcome");
   int64_t tour = addPage("Quick tour");
+  int64_t scripts = addPage("Buttons and scripts");
 
   auto text = [](int x, int y, int w, int h, const char* t, int size, bool bold, int color) {
     Object o;
@@ -966,7 +967,54 @@ void Document::seedStarter() {
     ry += 44;
   }
   tourObjs.push_back(button(40, 470, 200, 44, "Back to Welcome", home));
+  tourObjs.push_back(button(260, 470, 240, 44, "Buttons and scripts", scripts));
   addObjects(tour, std::move(tourObjs), "Starter");
+
+  // A scripting page that explains itself: the buttons on it really run the scripts it describes.
+  auto scriptButton = [](int x, int y, int w, int h, const char* label, const char* src) {
+    Object o;
+    o.type = ObjType::Button;
+    o.x = x; o.y = y; o.w = w; o.h = h;
+    o.setProp("label", label);
+    o.setProp("script", src);
+    return o;
+  };
+  auto named = [](Object o, const char* name) {
+    o.setProp("sname", name);
+    return o;
+  };
+  std::vector<Object> so;
+  so.push_back(text(40, 30, 880, 44, "Buttons and scripts", 26, true, 0x1F3A5F));
+  so.push_back(text(40, 84, 880, 150,
+                    "A script is a few lines of instructions you attach to a button. When you click the "
+                    "button in Run mode (Ctrl+E), Cairn follows the lines one by one, top to bottom.\n\n"
+                    "To write one: switch to Edit mode, double-click a button, and type lines into the "
+                    "Script box. Each line is one instruction. Lines starting with # are notes to yourself.",
+                    14, false, 0x222222));
+  so.push_back(text(40, 250, 420, 28, "Try it: a counter", 16, true, 0x1F3A5F));
+  so.push_back(named(text(40, 286, 420, 34, "Not clicked yet", 16, false, 0x222222), "Counter"));
+  so.push_back(scriptButton(40, 330, 200, 44, "Click me",
+                            "set n = n + 1\ntext \"Counter\" = \"Clicked \" + n + \" times\"\n"
+                            "if n >= 3 then say \"That's three!\""));
+  so.push_back(text(500, 250, 420, 28, "What the script says", 16, true, 0x1F3A5F));
+  so.push_back(text(500, 286, 420, 120,
+                    "set n = n + 1        add one to a counter named n\n"
+                    "text \"Counter\" = ...  change the text box whose Script name is Counter\n"
+                    "if n >= 3 then ...   only do the rest of the line when n is 3 or more",
+                    13, false, 0x33414F));
+  so.push_back(text(40, 410, 880, 28, "Everything a script can do", 16, true, 0x1F3A5F));
+  so.push_back(text(40, 446, 880, 150,
+                    "goto \"Page title\"   go to a page (also: goto next, prev, first, last, and back)\n"
+                    "set x = ...          remember a number or text (+ joins text)\n"
+                    "text \"Name\" = ...   change a text box (give it a Script name in its Properties)\n"
+                    "play \"Name\"  /  stop   start or stop an audio clip\n"
+                    "open \"address\"      open a web address or file\n"
+                    "say ...              show a message box\n\n"
+                    "Scripts are deliberately small and safe: no loops, no changing files, no network "
+                    "access beyond opening what a normal link button would open.",
+                    13, false, 0x222222));
+  so.push_back(button(40, 620, 200, 44, "Back to the tour", tour));
+  addObjects(scripts, std::move(so), "Starter");
   clearHistory();
 }
 

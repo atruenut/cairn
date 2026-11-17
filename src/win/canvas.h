@@ -124,6 +124,7 @@ class Canvas {
   void syncEditRuns();
   std::wstring editText() const;
   void pasteRichIntoEditor();
+  void growEditor();
   int measureRichHeight(const std::string& utf8, const std::string& runsEnc, int pt, int widthUnits);
   void clearFonts();
 
@@ -172,7 +173,13 @@ class Canvas {
   void drawAudio(HDC dc, const Object& o, const RECT& r);
   bool audioStart(const Object& o);   // writes the clip to a temp file and plays it; false if it cannot
   void audioStop();
-  void audioNotify(WPARAM w);         // MM_MCINOTIFY: the clip finished (loop it) or was stopped
+  void audioNotify(WPARAM w, LPARAM dev);  // MM_MCINOTIFY: the clip finished (loop it) or failed
+  void audioPauseResume();
+  void audioSeek(double frac);        // 0..1 of the clip
+  void audioApplyVolume();
+  void audioClick(const Object& o, int x, int y);  // Run mode: play/pause, stop, seek or volume by where it hit
+  struct AudioLayout { RECT name, play, stop, bar, time, vol; };
+  AudioLayout audioLayout(const RECT& r) const;
   void audioAutoplay();               // Run mode: start the first "play when the page opens" clip
   bool addAudioBytes(const std::string& bytes, const std::string& name, int px, int py);
   friend struct CanvasScriptHost;
@@ -182,6 +189,10 @@ class Canvas {
   // Sound is per process (one MCI device alias), so its state is shared by every pane.
   static inline int64_t audioObj_ = 0;
   static inline bool audioLoop_ = false;
+  static inline bool audioPaused_ = false;
+  static inline UINT audioDev_ = 0;     // MCI device id of the clip playing now, to ignore stale notifications
+  static inline long audioLen_ = 0;     // length in ms
+  static inline int audioVol_ = 1000;   // 0..1000, kept for every clip this session
   static inline DWORD audioTick_ = 0;  // when the current pass started: a clip that "ends" at once must not loop forever
   static inline std::wstring audioDir_;
   static inline std::vector<Canvas*> all_;  // every live pane, so a playing clip can repaint all of them
