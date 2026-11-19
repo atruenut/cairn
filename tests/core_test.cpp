@@ -56,7 +56,7 @@ static void testBasicsAndPersistence() {
   int64_t pid;
   {
     auto d = Document::create(path, true);
-    CHECK(d->pages().size() == 3);
+    CHECK(d->pages().size() == 4);
     CHECK(!d->canUndo());  // seeding must not be undoable
     {  // the starter scripting page must hold scripts that actually parse (a dry run needs only the syntax)
       const Page* sp = d->page(d->pageByTitle("Buttons and scripts"));
@@ -72,7 +72,7 @@ static void testBasicsAndPersistence() {
   }
   {
     auto d = Document::open(path);
-    CHECK(d->pages().size() == 4);
+    CHECK(d->pages().size() == 5);
     const Page* p = d->page(pid);
     CHECK(p && p->title == "Notes");
     CHECK(p && p->objects.size() == 1);

@@ -342,6 +342,22 @@ program is haunted". 16 checks, including ungrouping from a single member and un
 Under Wine: shift-click two objects, Ctrl+G, click away, click one: the status bar says "2 objects
 selected". Selecting a group by marquee takes all members if you touch one.
 
+## Entry 38: F1 should help
+
+F1 has said "Help" in the footer since the first week, and opened the About box. Tom's complaint
+about scripting ("I don't understand what the scripting is about") was really a discoverability
+complaint about the whole app: the explanation lived on starter pages that only brand-new files
+get. So: a new starter page, "More features" (one line for each thing added since the tour was
+written), and F1 now opens the guide, a fresh copy of the starter pages in the temp folder, as a
+normal document. Rebuilt every time so it can never go stale, never offered as the "last file" to
+reopen, and the previous copy is deleted once the new one is open (Windows will not let you delete
+a file you have open, hence a fresh name each time rather than rewriting one).
+
+Wine caught a bug that has been there since split view: opening any document while the right pane
+was active loaded the new file's first page into the right pane and left the left pane on "No page
+selected". A new document now always starts in the left pane. Also new: grouped objects get a
+faint dashed frame in Edit mode, so groups are visible rather than something you discover by dragging.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).

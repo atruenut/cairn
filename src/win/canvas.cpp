@@ -789,6 +789,27 @@ void Canvas::drawSelection(HDC dc) {
   HPEN pen = CreatePen(PS_SOLID, 1, kAccent);
   HGDIOBJ oldPen = SelectObject(dc, pen);
   HGDIOBJ oldBr = SelectObject(dc, GetStockObject(NULL_BRUSH));
+  if (const Page* gp = curPage()) {  // a faint dashed frame around each group, so grouped things are recognisable
+    std::map<int, RECT> frames;
+    std::map<int, int> members;
+    for (const Object& o : gp->objects)
+      if (int g = o.propInt("group", 0)) {
+        RECT r = objRectPx(eff(o));
+        auto it = frames.find(g);
+        if (it == frames.end()) frames[g] = r;
+        else UnionRect(&it->second, &it->second, &r);
+        ++members[g];
+      }
+    HPEN gpen = CreatePen(PS_DASH, 1, RGB(150, 120, 200));
+    SelectObject(dc, gpen);
+    int pad = MulDiv(4, dpi_, 96);
+    int oldBk = SetBkMode(dc, TRANSPARENT);
+    for (auto& [g, r] : frames)
+      if (members[g] >= 2) Rectangle(dc, r.left - pad, r.top - pad, r.right + pad + 1, r.bottom + pad + 1);
+    SetBkMode(dc, oldBk);
+    SelectObject(dc, pen);
+    DeleteObject(gpen);
+  }
   for (int64_t id : sel_) {
     const Object* o = doc_->object(id);
     if (!o) continue;

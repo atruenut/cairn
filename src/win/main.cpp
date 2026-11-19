@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.31.0";
+constexpr const char* kVersion = "0.32.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -52,7 +52,7 @@ enum Ids {
   IDM_CTX_OPENLINK, IDM_CTX_COPYLINK, IDM_CTX_ADDTEXT, IDM_CTX_ADDBUTTON, IDM_CTX_ADDRECT, IDM_CTX_ADDIMAGE,
   IDM_CTX_PASTE, IDM_CTX_PASTETEXT, IDM_PAGE_TAGS,
   IDM_FMT_BIGGER, IDM_FMT_SMALLER, IDM_VIEW_FKEYS, IDM_VIEW_SPLIT,
-  IDM_HELP_ABOUT,
+  IDM_HELP_GUIDE, IDM_HELP_ABOUT,
 };
 
 struct App {
@@ -371,6 +371,8 @@ std::wstring uniquePath(const std::wstring& dir, const std::wstring& stem) {
   return p;
 }
 
+bool isGuidePath(const std::wstring& path);
+
 void setDoc(std::unique_ptr<Document> d) {
   g.canvas.setDocument(nullptr);  // never leave a canvas pointing at a dying document
   if (g.canvas2.hwnd()) g.canvas2.setDocument(nullptr);
@@ -389,7 +391,12 @@ void setDoc(std::unique_ptr<Document> d) {
       g.hist2.pos = 0;
     }
   }
-  writeIni(L"last", widen(g.doc->path()));
+  if (!isGuidePath(widen(g.doc->path()))) writeIni(L"last", widen(g.doc->path()));  // the guide is a throwaway
+  if (g.active != &g.canvas) {  // a new document starts in the left pane; the right one already shows its first page
+    g.active = &g.canvas;
+    g.canvas.setMarked(g.split);
+    if (g.canvas2.hwnd()) g.canvas2.setMarked(false);
+  }
   if (!g.doc->pages().empty()) navigate(g.doc->pages().front().id, true);
   else {
     refreshPageList();
@@ -411,6 +418,7 @@ void setDoc(std::unique_ptr<Document> d) {
     }
   }
 }
+
 
 bool openDoc(const std::wstring& path, bool create, bool quiet) {
   try {
@@ -673,6 +681,25 @@ void cmdDeletePage() {
   g.doc->deletePage(p->id);
 }
 
+// The built-in guide: a fresh copy of the starter pages (tour, scripting, every feature) in the temp folder, opened
+// like any file. A new copy is made each time, so it is always current, and it is never remembered as the "last file".
+bool isGuidePath(const std::wstring& path) {
+  size_t sl = path.find_last_of(L"\\/");
+  return path.compare(sl == std::wstring::npos ? 0 : sl + 1, 12, L"Cairn Guide ") == 0;
+}
+
+void cmdGuide() {
+  static std::wstring previous;  // the copy we made last time; removed once the new one is open
+  wchar_t tmp[MAX_PATH + 2];
+  DWORD n = GetTempPathW(MAX_PATH, tmp);
+  if (!n || n > MAX_PATH) return;
+  std::wstring p = std::wstring(tmp, n) + L"Cairn Guide " + std::to_wstring(GetTickCount()) + L".cairn";
+  if (!openDoc(p, true, false)) return;
+  if (!previous.empty() && previous != p)
+    for (const wchar_t* ext : {L"", L"-wal", L"-shm", L"-journal"}) DeleteFileW((previous + ext).c_str());
+  previous = p;
+}
+
 void cmdAbout() {
   std::wstring m = std::wstring(kAppName) + L" " + widen(kVersion) +
                    L"\nA local-first multimedia knowledge environment.\n\nSQLite " +
@@ -807,7 +834,7 @@ void cmdAddAudio() {
 
 struct FKey { int id; const wchar_t* label; };
 const FKey kFKeys[10] = {
-    {IDM_HELP_ABOUT, L"Help"},     {IDM_EDIT_EDITTEXT, L"Edit Text"}, {IDM_VIEW_EDITMODE, L""},
+    {IDM_HELP_GUIDE, L"Help"},     {IDM_EDIT_EDITTEXT, L"Edit Text"}, {IDM_VIEW_EDITMODE, L""},
     {IDM_EDIT_PROPS, L"Properties"}, {IDM_EDIT_DUPLICATE, L"Duplicate"}, {IDM_PAGE_RENAME, L"Rename Page"},
     {IDM_PAGE_NEW, L"New Page"},   {IDM_EDIT_DELETE, L"Delete"},       {IDM_VIEW_PALETTE, L"Palette"},
     {IDM_PAGE_FIND, L"Find"},
@@ -1002,6 +1029,7 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_FILE_EXPORT, L"Export as Website...", L""},
     {IDM_FILE_EXPORTMD, L"Export as Markdown...", L""},
     {IDM_FILE_IMPORTMD, L"Import Markdown...", L""},
+    {IDM_HELP_GUIDE, L"Open the Cairn Guide", L"F1"},
     {IDM_HELP_ABOUT, L"About Cairn", L""},
 };
 
@@ -1299,6 +1327,7 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_VIEW_ZOOMOUT: cv().zoomStep(-1); break;
       case IDM_VIEW_ZOOM100: cv().setZoom(1.0); break;
       case IDM_VIEW_PALETTE: showPalette(); break;
+      case IDM_HELP_GUIDE: cmdGuide(); break;
       case IDM_HELP_ABOUT: cmdAbout(); break;
 
       case IDC_SEARCH:
@@ -1431,6 +1460,7 @@ HMENU buildMenu() {
   AppendMenuW(bar, MF_POPUP, (UINT_PTR)view, L"&View");
 
   HMENU help = CreatePopupMenu();
+  add(help, IDM_HELP_GUIDE, L"Cairn &Guide\tF1");
   add(help, IDM_HELP_ABOUT, L"&About Cairn");
   AppendMenuW(bar, MF_POPUP, (UINT_PTR)help, L"&Help");
   return bar;
@@ -1457,7 +1487,7 @@ HACCEL buildAccel() {
       {C, 'U', IDM_FMT_UNDERLINE},      {CS, 'X', IDM_FMT_STRIKE},
       {C, 'K', IDM_FMT_LINK},           {CS, 'V', IDM_EDIT_PASTETEXT},
       {C, VK_OEM_6, IDM_FMT_BIGGER},    {C, VK_OEM_4, IDM_FMT_SMALLER},
-      {FVIRTKEY, VK_F1, IDM_HELP_ABOUT}, {FVIRTKEY, VK_F2, IDM_EDIT_EDITTEXT},
+      {FVIRTKEY, VK_F1, IDM_HELP_GUIDE}, {FVIRTKEY, VK_F2, IDM_EDIT_EDITTEXT},
       {FVIRTKEY, VK_F3, IDM_VIEW_EDITMODE}, {FVIRTKEY, VK_F4, IDM_EDIT_PROPS},
       {FVIRTKEY, VK_F5, IDM_EDIT_DUPLICATE}, {FVIRTKEY, VK_F6, IDM_PAGE_RENAME},
       {FVIRTKEY, VK_F7, IDM_PAGE_NEW}, {FVIRTKEY, VK_F8, IDM_EDIT_DELETE},

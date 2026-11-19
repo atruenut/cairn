@@ -115,6 +115,11 @@ website export keeps them as CSS ellipses or small inline SVG polygons.
 100% (not just the part in the window), drawn the way it looks in Run mode: no grid, no selection handles. It never
 overwrites an existing file.
 
+**The guide.** F1 (Help > Cairn Guide) opens a fresh copy of the built-in guide: Welcome, Quick tour, Buttons and
+scripts (with a working example) and More features (one line per feature). It is made new in the temp folder each
+time, so it is always current, and it is never remembered as the file to reopen next time. In Edit mode, grouped
+objects get a faint dashed purple frame.
+
 **Group and stacking order.** Select two or more objects and press Ctrl+G (Edit > Group) to make them a group:
 clicking any member selects them all, so they drag, align, copy and delete together. Ctrl+Shift+G ungroups (the
 whole group, even if you had selected only one member). Copies and pastes of a whole group form a new group of
@@ -179,7 +184,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.31.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.32.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

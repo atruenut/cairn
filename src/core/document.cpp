@@ -994,6 +994,7 @@ void Document::seedStarter() {
   int64_t home = addPage("Welcome");
   int64_t tour = addPage("Quick tour");
   int64_t scripts = addPage("Buttons and scripts");
+  int64_t more = addPage("More features");
 
   auto text = [](int x, int y, int w, int h, const char* t, int size, bool bold, int color) {
     Object o;
@@ -1063,6 +1064,7 @@ void Document::seedStarter() {
   }
   tourObjs.push_back(button(40, 470, 200, 44, "Back to Welcome", home));
   tourObjs.push_back(button(260, 470, 240, 44, "Buttons and scripts", scripts));
+  tourObjs.push_back(button(520, 470, 200, 44, "More features", more));
   addObjects(tour, std::move(tourObjs), "Starter");
 
   // A scripting page that explains itself: the buttons on it really run the scripts it describes.
@@ -1112,6 +1114,31 @@ void Document::seedStarter() {
                     13, false, 0x222222));
   so.push_back(button(40, 660, 200, 44, "Back to the tour", tour));
   addObjects(scripts, std::move(so), "Starter");
+
+  // Everything added after the basics, one line each. Two columns of separate objects, as on the tour page.
+  const Row more_rows[] = {
+      {"Tables", "Edit > Add Table. Double-click a cell to type; Tab moves on; right-click for rows and columns"},
+      {"Audio", "Edit > Add Audio. In Run mode: play/pause, stop, click the bar to seek, volume"},
+      {"Wiki links", "Type [[Page title]] in any text. A red link creates that page when clicked"},
+      {"Folder listing", "Edit > Add Folder Listing shows the files in a folder; click one to open it"},
+      {"Shapes", "Add Shape, then Properties > Shape: ellipse, diamond, triangle, lines, arrows"},
+      {"Align / space", "Select several objects, then Edit > Align Objects"},
+      {"Group", "Ctrl+G groups the selection; Ctrl+Shift+G ungroups. Edit > Bring Forward / Send Backward"},
+      {"Split view", "Ctrl+\\ shows two pages side by side; drag the divider between them"},
+      {"Page script", "Edit > Add On-Open Script runs when the page opens in Run mode"},
+      {"Markdown", "File > Export as Markdown / Import Markdown"},
+      {"Export", "File > Export as Website, or Export Page as Image for a PNG of the page"},
+  };
+  std::vector<Object> mo;
+  mo.push_back(text(40, 24, 880, 44, "More features", 26, true, 0x1F3A5F));
+  int my = 82;
+  for (const Row& r : more_rows) {
+    mo.push_back(text(40, my, 170, 40, r.what, 14, true, 0x1F3A5F));
+    mo.push_back(text(220, my, 700, 40, r.how, 14, false, 0x222222));
+    my += 44;
+  }
+  mo.push_back(button(40, 590, 200, 40, "Back to the tour", tour));
+  addObjects(more, std::move(mo), "Starter");
   clearHistory();
 }
 
