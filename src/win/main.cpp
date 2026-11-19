@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.30.0";
+constexpr const char* kVersion = "0.31.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -41,7 +41,7 @@ enum Ids {
   IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_EXPORTPNG, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_EDIT_ADDONOPEN, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
-  IDM_EDIT_FRONT, IDM_EDIT_BACK,
+  IDM_EDIT_FRONT, IDM_EDIT_BACK, IDM_EDIT_FWD, IDM_EDIT_BWD, IDM_EDIT_GROUP, IDM_EDIT_UNGROUP,
   IDM_ARR_LEFT, IDM_ARR_RIGHT, IDM_ARR_TOP, IDM_ARR_BOTTOM, IDM_ARR_CENTERH, IDM_ARR_CENTERV, IDM_ARR_SPREADH, IDM_ARR_SPREADV,
   IDM_PAGE_NEW, IDM_PAGE_RENAME, IDM_PAGE_DELETE, IDM_PAGE_PROPS, IDM_PAGE_BACK, IDM_PAGE_FORWARD,
   IDM_PAGE_FIND, IDM_PAGE_MOVEUP, IDM_PAGE_MOVEDOWN,
@@ -992,6 +992,10 @@ const struct { int id; const wchar_t* name; const wchar_t* keys; } kPalCommands[
     {IDM_EDIT_PROPS, L"Properties of Selection", L"Alt+Enter"},
     {IDM_EDIT_FRONT, L"Bring to Front", L""},
     {IDM_EDIT_BACK, L"Send to Back", L""},
+    {IDM_EDIT_GROUP, L"Group objects", L"Ctrl+G"},
+    {IDM_EDIT_UNGROUP, L"Ungroup objects", L"Ctrl+Shift+G"},
+    {IDM_EDIT_FWD, L"Bring Forward", L""},
+    {IDM_EDIT_BWD, L"Send Backward", L""},
     {IDM_FILE_NEW, L"New Cairn File", L"Ctrl+N"},
     {IDM_FILE_OPEN, L"Open Cairn File", L"Ctrl+O"},
     {IDM_FILE_SAVECOPY, L"Save a Copy As", L""},
@@ -1269,6 +1273,10 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_EDIT_SELECTALL: cv().selectAll(); break;
       case IDM_EDIT_FRONT: cv().bringToFront(); break;
       case IDM_EDIT_BACK: cv().sendToBack(); break;
+      case IDM_EDIT_GROUP: cv().groupSelection(); break;
+      case IDM_EDIT_UNGROUP: cv().ungroupSelection(); break;
+      case IDM_EDIT_FWD: cv().bringForward(); break;
+      case IDM_EDIT_BWD: cv().sendBackward(); break;
       case IDM_ARR_LEFT: case IDM_ARR_RIGHT: case IDM_ARR_TOP: case IDM_ARR_BOTTOM:
       case IDM_ARR_CENTERH: case IDM_ARR_CENTERV: case IDM_ARR_SPREADH: case IDM_ARR_SPREADV:
         cv().arrangeSelection((int)(id - IDM_ARR_LEFT));
@@ -1376,6 +1384,10 @@ HMENU buildMenu() {
   sep(edit);
   add(edit, IDM_EDIT_FRONT, L"Bring to &Front");
   add(edit, IDM_EDIT_BACK, L"Send to Bac&k");
+  add(edit, IDM_EDIT_GROUP, L"&Group\tCtrl+G");
+  add(edit, IDM_EDIT_UNGROUP, L"U&ngroup\tCtrl+Shift+G");
+  add(edit, IDM_EDIT_FWD, L"Bring F&orward");
+  add(edit, IDM_EDIT_BWD, L"Send Back&ward");
   {
     HMENU arr = CreatePopupMenu();
     add(arr, IDM_ARR_LEFT, L"Align &Left");
@@ -1432,7 +1444,7 @@ HACCEL buildAccel() {
       {CS, 'Z', IDM_EDIT_REDO},        {C, 'D', IDM_EDIT_DUPLICATE},
       {C, 'A', IDM_EDIT_SELECTALL},    {C, 'E', IDM_VIEW_EDITMODE},   {C, VK_OEM_5, IDM_VIEW_SPLIT},
       {C, 'F', IDM_PAGE_FIND},         {C, 'H', IDM_EDIT_REPLACE},         {CS, 'T', IDM_EDIT_ADDTEXT},
-      {CS, 'B', IDM_EDIT_ADDBUTTON},   {CS, 'R', IDM_EDIT_ADDRECT},
+      {CS, 'B', IDM_EDIT_ADDBUTTON},   {CS, 'R', IDM_EDIT_ADDRECT},  {C, 'G', IDM_EDIT_GROUP}, {CS, 'G', IDM_EDIT_UNGROUP},
       {CS, 'N', IDM_PAGE_NEW},         {A, VK_LEFT, IDM_PAGE_BACK},
       {A, VK_RIGHT, IDM_PAGE_FORWARD},
       {A, VK_UP, IDM_PAGE_MOVEUP},     {A, VK_DOWN, IDM_PAGE_MOVEDOWN}, {A, VK_RETURN, IDM_EDIT_PROPS},
@@ -1484,6 +1496,10 @@ void updateMenuState() {
   en(IDM_EDIT_DELETE, edit && nsel > 0);
   en(IDM_EDIT_FRONT, edit && nsel > 0);
   en(IDM_EDIT_BACK, edit && nsel > 0);
+  en(IDM_EDIT_GROUP, edit && nsel >= 2);
+  en(IDM_EDIT_UNGROUP, edit && cv().selectionHasGroup());
+  en(IDM_EDIT_FWD, edit && nsel > 0);
+  en(IDM_EDIT_BWD, edit && nsel > 0);
   for (int id = IDM_ARR_LEFT; id <= IDM_ARR_SPREADV; ++id) en(id, edit && nsel >= (id >= IDM_ARR_SPREADH ? 3 : 2));
   en(IDM_EDIT_SELECTALL, edit);
   en(IDM_FILE_SAVECOPY, has);
@@ -1856,6 +1872,10 @@ void canvasContextMenu(POINT screen) {
     sep();
     add(IDM_EDIT_FRONT, L"Bring to Front");
     add(IDM_EDIT_BACK, L"Send to Back");
+    add(IDM_EDIT_GROUP, L"Group\tCtrl+G", nsel >= 2);
+    add(IDM_EDIT_UNGROUP, L"Ungroup\tCtrl+Shift+G", cv().selectionHasGroup());
+    add(IDM_EDIT_FWD, L"Bring Forward");
+    add(IDM_EDIT_BWD, L"Send Backward");
     if (nsel == 1 && cv().contextOnTable()) {
       HMENU tm = CreatePopupMenu();
       AppendMenuW(tm, MF_STRING, IDM_TBL_ROW_ABOVE, L"Insert Row Above");

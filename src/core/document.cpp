@@ -5,6 +5,7 @@
 #include "sha256.h"
 
 #include <algorithm>
+#include <map>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -585,11 +586,36 @@ int64_t Document::addObject(int64_t pageId, Object proto, const char* label) {
   return ids.empty() ? 0 : ids[0];
 }
 
+namespace {
+int maxGroup(const Page& p) {
+  int m = 0;
+  for (const Object& o : p.objects) m = std::max(m, o.propInt("group", 0));
+  return m;
+}
+}  // namespace
+
 std::vector<int64_t> Document::addObjects(int64_t pageId, std::vector<Object> protos,
                                           const char* label) {
   const Page* p = page(pageId);
   if (!p || protos.empty()) return {};
   int z = maxZ(*p);
+  {  // copies get fresh group numbers (so a pasted copy never joins the original's group); a group that
+     // arrives with a single member is no group at all
+    std::map<int, int> fresh, count;
+    for (const Object& o : protos)
+      if (int g = o.propInt("group", 0)) ++count[g];
+    int next = maxGroup(*p);
+    for (Object& o : protos) {
+      int g = o.propInt("group", 0);
+      if (!g) continue;
+      if (count[g] < 2) {
+        o.props.erase("group");
+      } else {
+        if (!fresh.count(g)) fresh[g] = ++next;
+        o.setPropInt("group", fresh[g]);
+      }
+    }
+  }
   UndoEntry e;
   e.label = label;
   std::vector<int64_t> ids;
@@ -651,6 +677,75 @@ bool Document::reorder(int64_t pageId, const std::vector<int64_t>& ids, bool toF
   int n = (int)sel.size();
   for (int k = 0; k < n; ++k) sel[k].z = toFront ? othersMax + 1 + k : othersMin - n + k;
   return updateObjects(sel, toFront ? "Bring to Front" : "Send to Back");
+}
+
+bool Document::group(int64_t pageId, const std::vector<int64_t>& ids) {
+  const Page* p = page(pageId);
+  if (!p) return false;
+  std::vector<Object> changed;
+  for (const Object& o : p->objects)
+    if (std::find(ids.begin(), ids.end(), o.id) != ids.end()) changed.push_back(o);
+  if (changed.size() < 2) return false;
+  int g = maxGroup(*p) + 1;
+  for (Object& o : changed) o.setPropInt("group", g);
+  // Anything that was grouped with a member but is not itself selected leaves that old group: members of a
+  // group are always exactly the objects sharing its number, so the old group simply shrinks.
+  return updateObjects(changed, "Group");
+}
+
+bool Document::ungroup(int64_t pageId, const std::vector<int64_t>& ids) {
+  const Page* p = page(pageId);
+  if (!p) return false;
+  std::vector<int> gs;
+  for (const Object& o : p->objects)
+    if (std::find(ids.begin(), ids.end(), o.id) != ids.end() && o.propInt("group", 0) != 0) gs.push_back(o.propInt("group", 0));
+  std::vector<Object> changed;
+  for (const Object& o : p->objects)
+    if (o.propInt("group", 0) != 0 && std::find(gs.begin(), gs.end(), o.propInt("group", 0)) != gs.end()) {
+      Object c = o;
+      c.props.erase("group");
+      changed.push_back(c);
+    }
+  return !changed.empty() && updateObjects(changed, "Ungroup");
+}
+
+std::vector<int64_t> Document::groupMates(int64_t objectId) const {
+  const Object* o = object(objectId);
+  if (!o) return {};
+  int g = o->propInt("group", 0);
+  if (g == 0) return {objectId};
+  const Page* p = page(o->pageId);
+  std::vector<int64_t> out;
+  if (p)
+    for (const Object& m : p->objects)
+      if (m.propInt("group", 0) == g) out.push_back(m.id);
+  return out.empty() ? std::vector<int64_t>{objectId} : out;
+}
+
+bool Document::reorderStep(int64_t pageId, const std::vector<int64_t>& ids, bool forward) {
+  const Page* p = page(pageId);
+  if (!p) return false;
+  std::vector<Object> stack = p->objects;  // already in stacking order, bottom first
+  std::stable_sort(stack.begin(), stack.end(), byZ);
+  auto isSel = [&](const Object& o) { return std::find(ids.begin(), ids.end(), o.id) != ids.end(); };
+  bool moved = false;
+  int n = (int)stack.size();
+  if (forward) {
+    for (int i = n - 2; i >= 0; --i)
+      if (isSel(stack[i]) && !isSel(stack[i + 1])) std::swap(stack[i], stack[i + 1]), moved = true;
+  } else {
+    for (int i = 1; i < n; ++i)
+      if (isSel(stack[i]) && !isSel(stack[i - 1])) std::swap(stack[i], stack[i - 1]), moved = true;
+  }
+  if (!moved) return false;
+  int base = p->objects.empty() ? 0 : p->objects.front().z;  // keep the page's z range where it was
+  std::vector<Object> changed;
+  for (int i = 0; i < n; ++i)
+    if (stack[i].z != base + i) {
+      stack[i].z = base + i;
+      changed.push_back(stack[i]);
+    }
+  return !changed.empty() && updateObjects(changed, forward ? "Bring Forward" : "Send Backward");
 }
 
 // ------------------------------------------------------------------ queries

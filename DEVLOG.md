@@ -322,6 +322,26 @@ Aside for future me: Wine suddenly died with `free(): invalid pointer` even for 
 It was not Cairn: the shell environment had picked up something that breaks Wine's loader, and
 launching through `env -i` with just PATH, HOME, DISPLAY and WINEPREFIX fixes it.
 
+## Entry 37: groups, and one-step stacking
+
+Two requests rolled into one round ("do that"): Bring Forward / Send Backward, and groups.
+
+Stacking: Bring to Front and Send to Back were all I had, which is the layout equivalent of having
+only 0 and 10 on a volume knob. `reorderStep` moves the selection past the nearest unselected
+neighbour, one place at a time, and keeps a selected pair in its relative order. 8 checks, including
+undoing three steps back to the start.
+
+Groups: a group is nothing more than a shared `group` number on the objects, so there is no new
+object type and no schema change, and a file with groups opened in an older Cairn just has loose
+objects. The interesting part was copies. Duplicate and paste both end in `addObjects`, so that is
+where I remap: every group that arrives with two or more members gets a fresh number, and one that
+arrives with a single member quietly stops being a group. Without that a pasted copy would join the
+original group and dragging one would drag both, which is the kind of bug a user reads as "the
+program is haunted". 16 checks, including ungrouping from a single member and undo.
+
+Under Wine: shift-click two objects, Ctrl+G, click away, click one: the status bar says "2 objects
+selected". Selecting a group by marquee takes all members if you touch one.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).

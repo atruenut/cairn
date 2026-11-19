@@ -115,6 +115,12 @@ website export keeps them as CSS ellipses or small inline SVG polygons.
 100% (not just the part in the window), drawn the way it looks in Run mode: no grid, no selection handles. It never
 overwrites an existing file.
 
+**Group and stacking order.** Select two or more objects and press Ctrl+G (Edit > Group) to make them a group:
+clicking any member selects them all, so they drag, align, copy and delete together. Ctrl+Shift+G ungroups (the
+whole group, even if you had selected only one member). Copies and pastes of a whole group form a new group of
+their own. Edit > Bring Forward / Send Backward move the selection one step up or down the stacking order (Bring to
+Front / Send to Back still jump to the ends).
+
 **Align objects.** Select two or more objects in Edit mode, then Edit > Align Objects: align left, right, top or
 bottom to the selection's outer edge, centre horizontally or vertically, or (with three or more) space them evenly
 across or down, keeping the two outermost where they are. Sizes never change, and each command is one undo step.
@@ -173,7 +179,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.30.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.31.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

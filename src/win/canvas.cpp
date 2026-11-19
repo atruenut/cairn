@@ -1062,14 +1062,17 @@ void Canvas::onLButtonDown(int x, int y, WPARAM keys) {
 
   if (const Object* o = objectAt(x, y)) {
     if (extend) {
-      auto it = std::find(sel_.begin(), sel_.end(), o->id);
-      if (it == sel_.end()) sel_.push_back(o->id);
-      else sel_.erase(it);
+      bool wasSel = isSelected(o->id);
+      for (int64_t id : doc_->groupMates(o->id)) {  // a group is picked or dropped as a whole
+        auto it = std::find(sel_.begin(), sel_.end(), id);
+        if (wasSel && it != sel_.end()) sel_.erase(it);
+        else if (!wasSel && it == sel_.end()) sel_.push_back(id);
+      }
       InvalidateRect(hwnd_, nullptr, FALSE);
       notify();
       return;
     }
-    if (!isSelected(o->id)) sel_ = {o->id};
+    if (!isSelected(o->id)) sel_ = doc_->groupMates(o->id);
     dragStart_ = {x, y};
     dragOrig_.clear();
     for (int64_t id : sel_)
@@ -1149,6 +1152,10 @@ void Canvas::onMouseMove(int x, int y, WPARAM) {
         RECT r = objRectPx(o), hit;
         if (IntersectRect(&hit, &r, &marquee_) && !isSelected(o.id)) sel_.push_back(o.id);
       }
+      std::vector<int64_t> all = sel_;  // touching one member of a group takes the whole group
+      for (int64_t id : all)
+        for (int64_t mate : doc_->groupMates(id))
+          if (!isSelected(mate)) sel_.push_back(mate);
     }
     notify();
   } else if (drag_ == Drag::Press) {
@@ -1875,6 +1882,20 @@ void Canvas::duplicateSelection() {
   notify();
 }
 
+void Canvas::groupSelection() {
+  if (edit_ && doc_) doc_->group(pageId_, sel_);
+}
+void Canvas::ungroupSelection() {
+  if (edit_ && doc_) doc_->ungroup(pageId_, sel_);
+}
+bool Canvas::selectionHasGroup() const {
+  if (!doc_) return false;
+  for (int64_t id : sel_)
+    if (const Object* o = doc_->object(id))
+      if (o->propInt("group", 0) != 0) return true;
+  return false;
+}
+
 void Canvas::selectAll() {
   const Page* p = curPage();
   if (!edit_ || !p) return;
@@ -1962,6 +1983,12 @@ bool Canvas::exportPagePng(const std::wstring& path) {
 
 void Canvas::bringToFront() {
   if (edit_ && !sel_.empty()) doc_->reorder(pageId_, sel_, true);
+}
+void Canvas::bringForward() {
+  if (edit_ && !sel_.empty()) doc_->reorderStep(pageId_, sel_, true);
+}
+void Canvas::sendBackward() {
+  if (edit_ && !sel_.empty()) doc_->reorderStep(pageId_, sel_, false);
 }
 void Canvas::sendToBack() {
   if (edit_ && !sel_.empty()) doc_->reorder(pageId_, sel_, false);

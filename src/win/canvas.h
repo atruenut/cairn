@@ -50,6 +50,11 @@ class Canvas {
   void nudge(int dx, int dy);
   bool exportPagePng(const std::wstring& path);  // the page as it looks in Run mode, at 100%
   void arrangeSelection(int mode);  // 0..7 = cairn::Arrange; one undo step
+  void groupSelection();    // two or more selected objects now move and select together
+  void ungroupSelection();
+  bool selectionHasGroup() const;
+  void bringForward();   // one step up / down in the stacking order
+  void sendBackward();
   void bringToFront();
   void sendToBack();
   void editProperties();  // selected object, or the page when nothing is selected

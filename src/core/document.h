@@ -63,6 +63,14 @@ class Document {
   }
   bool deleteObjects(int64_t pageId, const std::vector<int64_t>& ids, const char* label = "Delete");
   bool reorder(int64_t pageId, const std::vector<int64_t>& ids, bool toFront);
+  // One step in the stacking order: the selection swaps places with the nearest unselected object above
+  // (forward) or below (backward), each selected object moving at most one place. False when already at the end.
+  // Groups: objects on one page sharing a "group" number move and select together. Group needs two or more
+  // objects; Ungroup dissolves every group any of the given objects belongs to. Both are one undo step.
+  bool group(int64_t pageId, const std::vector<int64_t>& ids);
+  bool ungroup(int64_t pageId, const std::vector<int64_t>& ids);
+  std::vector<int64_t> groupMates(int64_t objectId) const;  // the object and everything grouped with it
+  bool reorderStep(int64_t pageId, const std::vector<int64_t>& ids, bool forward);
 
   // ---- undo ----
   bool canUndo() const { return cursor_ > 0; }

@@ -1351,6 +1351,71 @@ static void testShapeHit() {
   CHECK(!shapeContains(5, 0, 0, 5, 5, 1) || true);                 // zero-size box must not crash
 }
 
+static void testReorderStep() {
+  std::string path = tmpPath("cairn_step.cairn");
+  auto d = Document::create(path, false);
+  int64_t p = d->addPage("Z");
+  int64_t a = d->addObject(p, textObj(0, 0, "a"));
+  int64_t b = d->addObject(p, textObj(0, 0, "b"));
+  int64_t c = d->addObject(p, textObj(0, 0, "c"));
+  int64_t e = d->addObject(p, textObj(0, 0, "e"));
+  auto order = [&] {
+    std::string s;
+    for (const Object& o : d->page(p)->objects) s += o.id == a ? 'a' : o.id == b ? 'b' : o.id == c ? 'c' : 'e';
+    return s;
+  };
+  CHECK(order() == "abce");
+  CHECK(d->reorderStep(p, {a}, true) && order() == "bace");
+  CHECK(d->reorderStep(p, {a}, true) && order() == "bcae");
+  CHECK(d->reorderStep(p, {e}, false) && order() == "bcea");
+  CHECK(!d->reorderStep(p, {b}, false));   // already at the bottom
+  CHECK(!d->reorderStep(p, {a}, true));    // already on top
+  CHECK(d->reorderStep(p, {b, c}, true) && order() == "ebca");  // a pair moves together, order kept
+  d->undo();
+  CHECK(order() == "bcea");
+  d->undo(); d->undo(); d->undo();
+  CHECK(order() == "abce");
+  std::filesystem::remove(path);
+}
+
+static void testGroups() {
+  std::string path = tmpPath("cairn_groups.cairn");
+  auto d = Document::create(path, false);
+  int64_t p = d->addPage("G");
+  int64_t a = d->addObject(p, textObj(0, 0, "a"));
+  int64_t b = d->addObject(p, textObj(0, 0, "b"));
+  int64_t c = d->addObject(p, textObj(0, 0, "c"));
+  CHECK(!d->group(p, {a}));                      // one object is not a group
+  CHECK(d->groupMates(a) == std::vector<int64_t>{a});
+  CHECK(d->group(p, {a, b}));
+  auto m = d->groupMates(a);
+  CHECK(m.size() == 2 && d->groupMates(b).size() == 2 && d->groupMates(c).size() == 1);
+  CHECK(d->object(a)->propInt("group", 0) == d->object(b)->propInt("group", 0) && d->object(a)->propInt("group", 0) > 0);
+  // a second group gets a different number
+  CHECK(d->group(p, {b, c}));                   // b leaves {a,b} and joins {b,c}
+  CHECK(d->groupMates(a).size() == 1 && d->groupMates(b).size() == 2);
+  d->undo();
+  CHECK(d->groupMates(a).size() == 2);
+  // duplicating both members makes a new group of two, not a merge with the original
+  auto o1 = *d->object(a), o2 = *d->object(b);
+  auto ids = d->addObjects(p, {o1, o2}, "Duplicate");
+  CHECK(ids.size() == 2 && d->groupMates(ids[0]).size() == 2 && d->groupMates(a).size() == 2);
+  CHECK(d->object(ids[0])->propInt("group", 0) != d->object(a)->propInt("group", 0));
+  // duplicating one member alone leaves it ungrouped
+  auto solo = d->addObjects(p, {o1}, "Duplicate");
+  CHECK(solo.size() == 1 && d->groupMates(solo[0]).size() == 1 && d->groupMates(a).size() == 2);
+  // copy/paste through the transfer format behaves the same
+  auto pasted = d->importObjects(p, d->exportObjects({a, b}), 10, 10, "Paste");
+  CHECK(pasted.size() == 2 && d->groupMates(pasted[0]).size() == 2 && d->groupMates(a).size() == 2);
+  // ungroup dissolves the whole group even when only one member is given
+  CHECK(d->ungroup(p, {a}));
+  CHECK(d->groupMates(a).size() == 1 && d->groupMates(b).size() == 1);
+  CHECK(!d->ungroup(p, {c}));                   // nothing to dissolve
+  d->undo();
+  CHECK(d->groupMates(a).size() == 2);
+  std::filesystem::remove(path);
+}
+
 static void testScripts() {
   std::printf("scripts\n");
   using namespace cairn;
@@ -1446,6 +1511,8 @@ int main() {
   testShapesExport();
   testLines();
   testShapeHit();
+  testReorderStep();
+  testGroups();
   testPageOrder();
   testUrls();
   testProps();
