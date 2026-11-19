@@ -20,7 +20,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install MinGW-w64
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 zip
+        # Mirrors sometimes stall; fail fast and retry instead of hanging for hours.
+        timeout-minutes: 12
+        run: |
+          for i in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update &&
+               sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends mingw-w64 zip; then
+              exit 0
+            fi
+            echo "apt attempt $i failed; retrying"; sleep 10
+          done
+          exit 1
 
       - name: Core tests (native)
         run: make test
