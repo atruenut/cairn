@@ -31,4 +31,9 @@ struct Pt {
 // `len` is the head length, `half` half its width, in the caller's units. Degenerate segments give three equal points.
 void arrowHead(const Segment& s, int len, int half, Pt out[3]);
 
+// Is point (px, py), measured from the box's top-left, on this shape? Used so clicking the empty corner of an
+// ellipse, diamond or triangle, or beside a line, does not select it. `tol` widens the shape (same unit as the
+// box), so thin lines stay clickable. Rectangles (kind 0 or unknown) are the whole box.
+bool shapeContains(int kind, double w, double h, double px, double py, double tol);
+
 }  // namespace cairn

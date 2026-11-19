@@ -307,6 +307,21 @@ Checked under Wine: an "Arrow (right)" shape draws a line with its head at the b
 It is the default grey-blue, so on a busy page it is faint; pick a darker line colour. Lines
 still select by their bounding box, which is generous for a diagonal.
 
+## Entry 36: clicking what you can see
+
+Entry 35 admitted that shapes still selected by bounding box, which made a big ellipse a wall over
+everything behind it. Now `shapeContains` (core, 12 checks) decides: inside the ellipse, inside the
+diamond or triangle, or within a few pixels of a line. The tolerance grows with the line width, so
+a hairline is still catchable. Rectangles are untouched.
+
+My own test had a wrong point (I picked a spot 19 pixels from the triangle's edge and called it
+"within tolerance"), so that was a test bug, not a code bug. Under Wine: an ellipse laid over a
+button, click in the ellipse's empty top-left corner, and the button underneath is selected.
+
+Aside for future me: Wine suddenly died with `free(): invalid pointer` even for `cmd /c echo`.
+It was not Cairn: the shell environment had picked up something that breaks Wine's loader, and
+launching through `env -i` with just PATH, HOME, DISPLAY and WINEPREFIX fixes it.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).

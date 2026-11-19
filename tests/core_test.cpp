@@ -1336,6 +1336,21 @@ static void testLines() {
   CHECK(svg);
 }
 
+static void testShapeHit() {
+  CHECK(shapeContains(0, 100, 50, 1, 1, 0));                       // rectangle: whole box
+  CHECK(shapeContains(1, 100, 50, 50, 25, 0) && !shapeContains(1, 100, 50, 2, 2, 0));  // ellipse: centre yes, corner no
+  CHECK(shapeContains(2, 100, 50, 50, 25, 0) && !shapeContains(2, 100, 50, 5, 5, 0));  // diamond
+  CHECK(shapeContains(2, 100, 50, 50, 1, 0));                      // diamond: near the top vertex
+  CHECK(shapeContains(3, 100, 50, 50, 30, 0) && !shapeContains(3, 100, 50, 5, 5, 0));  // triangle: apex up, corners empty
+  CHECK(shapeContains(3, 100, 50, 5, 49, 0));                      // triangle: bottom-left vertex area
+  CHECK(shapeContains(3, 100, 50, 28, 20, 4) && !shapeContains(3, 100, 50, 28, 20, 0));                     // within tolerance of the slanted edge
+  CHECK(shapeContains(4, 100, 20, 30, 10, 2) && !shapeContains(4, 100, 20, 30, 2, 2));  // horizontal line
+  CHECK(shapeContains(6, 100, 100, 50, 50, 1) && shapeContains(6, 100, 100, 70, 71, 2) && !shapeContains(6, 100, 100, 90, 10, 2));
+  CHECK(shapeContains(7, 100, 100, 50, 50, 1) && !shapeContains(7, 100, 100, 10, 10, 2));  // other diagonal
+  CHECK(shapeContains(8, 100, 20, 99, 10, 1));                     // arrow tip end
+  CHECK(!shapeContains(5, 0, 0, 5, 5, 1) || true);                 // zero-size box must not crash
+}
+
 static void testScripts() {
   std::printf("scripts\n");
   using namespace cairn;
@@ -1430,6 +1445,7 @@ int main() {
   testArrange();
   testShapesExport();
   testLines();
+  testShapeHit();
   testPageOrder();
   testUrls();
   testProps();

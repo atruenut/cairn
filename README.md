@@ -107,7 +107,8 @@ are remembered between sessions (the page is remembered per file: open a differe
 
 **Shapes.** Edit > Add Shape (Ctrl+Shift+R) adds a rectangle; in its Properties, Shape turns it into an ellipse,
 diamond or triangle. The same dropdown also offers lines (horizontal, vertical, two diagonals) and arrows (right, down). Line colour and
-width set how a line or arrow looks. Fill, line colour and width apply to the closed shapes (corner radius only to rectangles). The
+width set how a line or arrow looks. Fill, line colour and width apply to the closed shapes (corner radius only to rectangles). Clicking follows the shape's outline: the empty
+corners of an ellipse, diamond or triangle, and the space beside a line, select whatever is underneath instead. The
 website export keeps them as CSS ellipses or small inline SVG polygons.
 
 **Export Page as Image.** File > Export Page as Image saves the page you are looking at as a PNG, the whole page at
@@ -172,7 +173,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.29.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.30.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

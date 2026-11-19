@@ -887,7 +887,13 @@ const Object* Canvas::objectAt(int px, int py) const {
     RECT r = objRectPx(eff(*it));
     InflateRect(&r, 2, 2);
     POINT pt = {px, py};
-    if (PtInRect(&r, pt)) return &*it;
+    if (!PtInRect(&r, pt)) continue;
+    if (it->type == ObjType::Rect && it->propInt("kind", 0) != 0) {  // follow the shape's outline, not its box
+      RECT b = objRectPx(eff(*it));
+      double tol = 3 * dpi_ / 96.0 + std::max(1, (int)std::lround(it->propInt("lw", 1) * scale())) / 2.0;
+      if (!shapeContains(it->propInt("kind", 0), b.right - b.left, b.bottom - b.top, px - b.left, py - b.top, tol)) continue;
+    }
+    return &*it;
   }
   return nullptr;
 }

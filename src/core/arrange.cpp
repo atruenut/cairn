@@ -76,4 +76,37 @@ void arrowHead(const Segment& s, int len, int half, Pt out[3]) {
   out[2] = {(int)std::lround(bx + uy * half), (int)std::lround(by - ux * half)};
 }
 
+namespace {
+double distToSegment(double px, double py, double x1, double y1, double x2, double y2) {
+  double dx = x2 - x1, dy = y2 - y1, len2 = dx * dx + dy * dy;
+  double t = len2 > 0 ? std::clamp(((px - x1) * dx + (py - y1) * dy) / len2, 0.0, 1.0) : 0.0;
+  return std::hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+bool insideTriangle(double px, double py, const double v[6]) {
+  auto side = [&](double ax, double ay, double bx, double by) { return (bx - ax) * (py - ay) - (by - ay) * (px - ax); };
+  double a = side(v[0], v[1], v[2], v[3]), b = side(v[2], v[3], v[4], v[5]), c = side(v[4], v[5], v[0], v[1]);
+  return (a >= 0 && b >= 0 && c >= 0) || (a <= 0 && b <= 0 && c <= 0);
+}
+}  // namespace
+
+bool shapeContains(int kind, double w, double h, double px, double py, double tol) {
+  Segment s;
+  if (shapeSegment(kind, 0, 0, (int)w, (int)h, s)) return distToSegment(px, py, s.x1, s.y1, s.x2, s.y2) <= tol;
+  if (kind == 1) {
+    double a = w / 2 + tol, b = h / 2 + tol, dx = px - w / 2, dy = py - h / 2;
+    return a > 0 && b > 0 && (dx * dx) / (a * a) + (dy * dy) / (b * b) <= 1.0;
+  }
+  if (kind == 2) {
+    double a = w / 2 + tol, b = h / 2 + tol;
+    return a > 0 && b > 0 && std::fabs(px - w / 2) / a + std::fabs(py - h / 2) / b <= 1.0;
+  }
+  if (kind == 3) {
+    const double v[6] = {w / 2, 0, w, h, 0, h};
+    if (insideTriangle(px, py, v)) return true;
+    return distToSegment(px, py, v[0], v[1], v[2], v[3]) <= tol || distToSegment(px, py, v[2], v[3], v[4], v[5]) <= tol ||
+           distToSegment(px, py, v[4], v[5], v[0], v[1]) <= tol;
+  }
+  return true;
+}
+
 }  // namespace cairn
