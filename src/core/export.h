@@ -16,6 +16,9 @@ struct ExportFile {
 };
 
 // `siteTitle` names the index page. The first file is always "index.html".
+// The JavaScript copy of the scripting language that scripted exported pages load (cairn.js).
+const char* cairnJsSource();
+
 std::vector<ExportFile> exportSite(const Document& doc, const std::string& siteTitle);
 
 // File name a page is exported under ("page-<id>.html"), so links can be built from outside.

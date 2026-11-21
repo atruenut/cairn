@@ -22,7 +22,7 @@ CXXFLAGS     := -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Isrc/core -I
 LDFLAGS      := -static -mwindows -municode
 LIBS         := -lcomctl32 -lcomdlg32 -lshell32 -lgdi32 -luser32 -lole32 -lwindowscodecs -luuid -lmsimg32 -lwinmm
 
-CORE_SRC := src/core/document.cpp src/core/model.cpp src/core/rich.cpp src/core/export.cpp src/core/markdown.cpp src/core/table.cpp src/core/media.cpp src/core/script.cpp src/core/arrange.cpp
+CORE_SRC := src/core/document.cpp src/core/model.cpp src/core/rich.cpp src/core/export.cpp src/core/markdown.cpp src/core/table.cpp src/core/media.cpp src/core/script.cpp src/core/lisp.cpp src/core/gif.cpp src/core/cairn_js.cpp src/core/arrange.cpp
 WIN_SRC  := src/win/main.cpp src/win/canvas.cpp src/win/propform.cpp src/win/images.cpp
 OBJS     := $(patsubst src/%.cpp,$(OBJ)/%.o,$(CORE_SRC) $(WIN_SRC)) $(OBJ)/sqlite3.o $(OBJ)/cairn_res.o
 

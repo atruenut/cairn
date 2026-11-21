@@ -67,8 +67,9 @@ labels. It tells you how many matches it found before changing anything, keeps b
 right words, and the whole replace is a single undo step.
 
 **Export as Website.** File > Export as Website writes a new folder of plain HTML (an index, one page per
-Cairn page with objects in their places, the images, and working page-to-page buttons). No scripts; web links
-are kept, buttons that open local files are not. It never writes into an existing folder.
+Cairn page with objects in their places, the images, and working page-to-page buttons). Scripts work too: a small
+JavaScript copy of the Lisp (cairn.js) is written beside the pages, buttons run their scripts, on-open scripts and timers
+run, and `goto` becomes a jump to the exported page. Web links are kept, buttons that open local files are not. It never writes into an existing folder.
 
 **Wiki links.** Type `[[Page title]]` in any text object. In Run mode it is a blue underlined link to the page
 with that title (case-insensitive). If no page has that title it shows in muted red, and clicking it creates the
@@ -78,24 +79,34 @@ it this way. The brackets stay in the text. Renaming a page rewrites `[[links]]`
 export turns them into real links between pages; Markdown export keeps them as `[[Title]]`, which other
 note tools understand.
 
-**Button scripts.** Think of a script as a short recipe attached to a button: when you click the button in Run mode,
-Cairn does the recipe's steps in order. The "Buttons and scripts" page in the starter file has a working counter you can
-copy from. A button's Properties has a Script box. When it is not empty, clicking the button in Run mode
-runs the script instead of its Go-to / Open settings. It is a deliberately tiny language: no loops, no files, no
-network, and each line runs at most once, so a script always ends. One statement per line, `#` starts a comment:
+**Scripts (a small Lisp).** A script is a short program attached to a button, or to the page itself. Cairn's language is a
+tiny Scheme-style Lisp: `(word input input ...)`, so `(+ 1 2)` is 3 and `(say "Hi")` shows a message. A button's Properties
+has a Script box; when it is not empty, clicking the button in Run mode runs the script instead of its Go-to / Open
+settings. The "Buttons and scripts" page of the Cairn Guide (F1) has a working counter, and "Animation" has a moving
+shape. `;` starts a comment.
 
-    goto "Page title"     goto next | prev | first | last      back
-    set n = n + 1         numbers and "text"; an unset variable is 0; + joins text
-    text "Counter" = "Clicked " + n + " times"     set the text of the text object whose Script name is Counter
-    play "Clip"           stop                     a clip whose Script name or file name is Clip, on this page
-    open "https://example.org"                     only what a link button could open, with the same checks
-    say "hello"                                    a message box
-    if n >= 3 then say "Three!"                    = != <> < > <= >=; one statement after then; no nesting
+    (define x 5)  (set! x (+ x 1))  (define (double n) (* n 2))       remember things; define procedures
+    (if (> x 3) "big" "small")  (cond ((< x 0) "neg") (else "ok"))     decide; also and, or, not, when, unless
+    (let ((a 1) (b 2)) (+ a b))  (lambda (n) (* n n))                 local names; unnamed procedures; named let loops
+    (list 1 2 3)  (map f lst)  (filter odd? (range 10))  (reduce + 0 lst)  (nth lst 0)  (sort lst)  (append a b)
+    (str "Clicked " n " times")  (string-upcase s)  (substring s 0 3)  (number->string 5)  (string->number "5")
+    (dotimes (i 5) ...)  (while test ...)  (for-each f lst)  (random 10)  sin cos sqrt expt min max abs round
+    (goto "Page title")  (goto 'next)  (back)        (play "Clip")  (stop)        (open "https://example.org")
+    (say "hello")                                    a message box
+    (get "Name" 'x)  (set-prop! "Name" 'x 200)       read / change x y w h fill color line text of an object
+    (set-text! "Name" "new text")                    shorthand for changing its text
+    (after 1000 (lambda () ...))  (every 40 (lambda () ...))  (cancel-timers)  (now)  (rgb 255 0 0)
 
-Give an object a Script name in its Properties so scripts can find it. A script is checked when you press OK and is
-not saved if it has an error (the old one is kept); at run time an error stops the script and says which line.
-Variables last until the document is closed. Changes a script makes to text are one undo step each. Scripts do not
-run on an exported website, where a scripted button is shown as plain text.
+Give an object a Script name in its Properties so scripts can find it. Changes made with `set-prop!` and `set-text!` are
+visible while the page is shown and are never saved (leave the page or enter Edit mode and everything is back as saved).
+`(goto ...)` happens when the script finishes. Definitions last until the document is closed. A script is
+checked when you press OK (brackets balanced, strings closed) and is not saved if it has an error; at run time an error
+stops the script with a message. A script that runs too long (an endless loop) is stopped, nesting is capped, and a script
+can't change files or reach the network: `open` does only what a link button would. Text functions count bytes in the
+app and characters on exported pages, so stick to plain letters when using `substring` or `string-length`.
+
+Older line-style scripts (`set n = n + 1`, `text "Counter" = ...`, `if n >= 3 then say "Three!"`) keep working
+unchanged; they are told apart by not starting with a bracket, and they are converted to Lisp when a site is exported.
 
 **Split view.** View > Split View (Ctrl+\) shows two pages side by side. Each pane has its own page, its own
 Edit/Run mode and its own zoom, and it is a full pane: you can edit in either. Commands, the toolbar, the page
@@ -114,6 +125,10 @@ website export keeps them as CSS ellipses or small inline SVG polygons.
 **Export Page as Image.** File > Export Page as Image saves the page you are looking at as a PNG, the whole page at
 100% (not just the part in the window), drawn the way it looks in Run mode: no grid, no selection handles. It never
 overwrites an existing file.
+Choose "Animated GIF" instead of PNG to record what a page's on-open script does: you pick a length (1-60 seconds) and
+frames per second (1-25) and Cairn plays the script on a virtual clock and writes a looping GIF (shared palette, only the
+changed part of each frame is stored). The page must start a timer with `every` or `after`; otherwise it says there is
+nothing to record. WebM is not offered because it needs a video encoder Cairn doesn't ship.
 
 **The guide.** F1 (Help > Cairn Guide) opens the built-in guide in its own window: Welcome, Quick tour, Buttons and
 scripts (with a working example) and More features. It lives in memory only, so nothing is written to disk and
@@ -131,8 +146,8 @@ bottom to the selection's outer edge, centre horizontally or vertically, or (wit
 across or down, keeping the two outermost where they are. Sizes never change, and each command is one undo step.
 
 **On-open scripts.** Edit > Add On-Open Script puts a script on the page itself (a dashed yellow note in Edit
-mode, invisible in Run mode). It runs every time the page is opened in Run mode, using the same commands as button
-scripts. A chain of pages that send each other onward stops after a few hops instead of looping forever.
+mode, invisible in Run mode). It runs every time the page is opened in Run mode, using the same language as button
+scripts, so a timer started there can animate the page (see Export Page as Image). A chain of pages that send each other onward stops after a few hops instead of looping forever.
 
 **Text boxes** grow taller while you type, so the text is never cut off (they never shrink on their own).
 
@@ -184,7 +199,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.32.1). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.33.0). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

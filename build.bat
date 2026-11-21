@@ -30,7 +30,7 @@ if not exist build mkdir build
 
 set SQLFLAGS=-O2 -DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_FTS5 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_DEPRECATED -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_DQS=0
 set INCS=-Isrc/core -Isrc/win -Ivendor/sqlite
-set CORE=src\core\document.cpp src\core\model.cpp src\core\rich.cpp src\core\export.cpp src\core\markdown.cpp src\core\table.cpp src\core\media.cpp src\core\script.cpp src\core\arrange.cpp
+set CORE=src\core\document.cpp src\core\model.cpp src\core\rich.cpp src\core\export.cpp src\core\markdown.cpp src\core\table.cpp src\core\media.cpp src\core\script.cpp src\core\lisp.cpp src\core\gif.cpp src\core\cairn_js.cpp src\core\arrange.cpp
 
 rem SQLite is large; compile it once and reuse the object file.
 if not exist build\sqlite3.o (

@@ -1,0 +1,181 @@
+### arithmetic
+(say (+ 1 2 3) " " (- 10 4) " " (* 2 3 4) " " (/ 10 4) " " (- 5))
+---
+6 6 24 2.5 -5
+### mod and rounding
+(say (mod 7 3) " " (mod -7 3) " " (mod 7 -3) " " (quotient 7 2) " " (round 2.5) " " (round -2.5) " " (floor 2.7) " " (ceiling 2.1))
+---
+1 2 -2 3 3 -2 2 3
+### precision
+(say (/ 1 3) " " (sqrt 16) " " (expt 2 10) " " (* 1.5 2))
+---
+0.3333333333 4 1024 3
+### define and strings
+(define name "Ada")
+(define (greet who) (str "Hello, " who "!"))
+(say (greet name))
+---
+Hello, Ada!
+### if cond
+(define (sign n) (cond ((< n 0) "neg") ((= n 0) "zero") (else "pos")))
+(say (sign -3) (sign 0) (sign 8) (if (> 1 2) "a" "b"))
+---
+negzeroposb
+### let and let*
+(say (let ((a 2) (b 3)) (* a b)) " " (let* ((a 2) (b (+ a 1))) (* a b)))
+---
+6 6
+### closures
+(define (make-counter)
+  (let ((n 0))
+    (lambda () (set! n (+ n 1)) n)))
+(define c (make-counter))
+(c) (c)
+(say (c))
+---
+3
+### recursion
+(define (fact n) (if (<= n 1) 1 (* n (fact (- n 1)))))
+(say (fact 10))
+---
+3628800
+### tail recursion
+(define (count n acc) (if (= n 0) acc (count (- n 1) (+ acc 1))))
+(say (count 5000 0))
+---
+5000
+### named let
+(say (let loop ((i 0) (s 0)) (if (> i 10) s (loop (+ i 1) (+ s i)))))
+---
+55
+### lists
+(define l (list 3 1 2))
+(say l " " (length l) " " (car l) " " (cdr l) " " (nth l 2) " " (cons 0 l) " " (append l '(9 8)) " " (reverse l))
+---
+(3 1 2) 3 3 (1 2) 2 (0 3 1 2) (3 1 2 9 8) (2 1 3)
+### higher order
+(say (map (lambda (x) (* x x)) (range 5)) " " (filter odd? (range 10)) " " (reduce + 0 (range 1 5)) " " (apply max '(4 9 2)))
+---
+(0 1 4 9 16) (1 3 5 7 9) 10 9
+### sort
+(say (sort '(3 1 2)) " " (sort '("b" "a" "c")) " " (sort '(1 2 3) >))
+---
+(1 2 3) ("a" "b" "c") (3 2 1)
+### strings
+(say (string-length "hello") " " (substring "hello" 1 3) " " (string-upcase "abc") " " (string-append "a" "b") " " (number->string 42) " " (string->number "3.5") " " (string->number "x") " " (string-contains? "hello" "ell"))
+---
+5 el ABC ab 42 3.5 #f #t
+### str shows lists
+(say (str "x=" 1 " " '(1 "two" three) " " #t))
+---
+x=1 (1 "two" three) #t
+### and or when unless
+(say (and 1 2) (and 1 #f 3) (or #f 5) (or #f #f))
+(when (> 2 1) (say "yes"))
+(unless (> 2 1) (say "no"))
+---
+2#f5#f
+yes
+### while and dotimes
+(define i 0)
+(define total 0)
+(while (< i 5) (set! total (+ total i)) (set! i (+ i 1)))
+(dotimes (k 3) (set! total (+ total 100)))
+(say total)
+---
+310
+### for-each
+(for-each (lambda (x) (say "item " x)) '("a" "b"))
+---
+item a
+item b
+### rest args
+(define (sum . xs) (reduce + 0 xs))
+(say (sum 1 2 3) " " (sum))
+---
+6 0
+### equality
+(say (equal? '(1 2) (list 1 2)) (equal? "a" "a") (= 1 1 1) (eq? 'a 'a) (equal? 1 "1"))
+---
+#t#t#t#t#f
+### quote
+(say 'hello " " '(a b) " " (car '(a b)))
+---
+hello (a b) a
+### after timer
+(after 100 (lambda () (say "later")))
+(say "now")
+---
+now
+later
+### every timer with cancel
+(define n 0)
+(define t 0)
+(set! t (every 100 (lambda () (set! n (+ n 1)) (say "tick " n) (when (= n 3) (cancel t)))))
+---
+tick 1
+tick 2
+tick 3
+### clock
+(after 250 (lambda () (say (now))))
+---
+250
+### objects
+(say (text "box") " " (get "box" 'x))
+(set-text! "box" "changed")
+(set-prop! "box" 'x 42)
+(say (text "box") " " (get "box" 'x))
+---
+hello 10
+changed 42
+### goto
+(goto "Page two")
+(goto 'next)
+(play "Song")
+(say (page-title))
+---
+[goto Page two]
+[goto next]
+[play Song]
+Test page
+### error unknown name
+(say "a")
+(say nope)
+---
+a
+ERROR: I don't know what "nope" is (check the spelling, or define it first)
+### error type
+(say (+ 1 "a"))
+---
+ERROR: + adds numbers, but got "a" (to join text use str)
+### error div zero
+(say (/ 1 0))
+---
+ERROR: Division by zero
+### error runaway
+(define (f) (f2))
+(define (f2) (+ 1 (f)))
+(f)
+---
+ERROR: This is nested too deeply (does a procedure call itself forever?)
+### error endless loop
+(while #t 1)
+---
+ERROR: This script ran for too long and was stopped (is there a loop that never ends?)
+### error nth
+(say (nth '(1 2) 5))
+---
+ERROR: nth: the list has 2 items, so there is no item 5 (counting starts at 0)
+### comments
+; a comment
+(say "ok") ; trailing
+---
+ok
+### escapes
+(say "a\"b\\c")
+---
+a"b\c
+### rgb
+(say (rgb 255 0 0) " " (rgb 1 2 3) " " (rgb 300 -5 0))
+---
+16711680 66051 16711680

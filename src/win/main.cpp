@@ -31,14 +31,14 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.32.1";
+constexpr const char* kVersion = "0.33.0";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
 enum Ids {
   IDC_SEARCH = 201, IDC_TOOLBAR, IDC_PAGES, IDC_BACKLINKS, IDC_CANVAS, IDC_CANVAS2, IDC_STATUS, IDC_LINKLABEL,
 
-  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_EXPORTPNG, IDM_FILE_IMPORTMD, IDM_FILE_EXIT,
+  IDM_FILE_NEW = 100, IDM_FILE_OPEN, IDM_FILE_SAVECOPY, IDM_FILE_EXPORT, IDM_FILE_EXPORTMD, IDM_FILE_EXPORTPNG, IDM_FILE_IMPORTMD, IDM_FILE_SHOWFILE, IDM_FILE_COPYPATH, IDM_FILE_EXIT,
   IDM_EDIT_UNDO, IDM_EDIT_REDO, IDM_EDIT_ADDTEXT, IDM_EDIT_ADDBUTTON, IDM_EDIT_ADDRECT, IDM_EDIT_ADDFOLDER, IDM_EDIT_ADDTABLE, IDM_EDIT_ADDAUDIO, IDM_EDIT_ADDONOPEN, IDM_TBL_ROW_ABOVE, IDM_TBL_ROW_BELOW, IDM_TBL_ROW_DEL, IDM_TBL_COL_LEFT, IDM_TBL_COL_RIGHT, IDM_TBL_COL_DEL,
   IDM_EDIT_EDITTEXT, IDM_EDIT_REPLACE, IDM_EDIT_PROPS, IDM_EDIT_DUPLICATE, IDM_EDIT_DELETE, IDM_EDIT_SELECTALL,
   IDM_EDIT_FRONT, IDM_EDIT_BACK, IDM_EDIT_FWD, IDM_EDIT_BWD, IDM_EDIT_GROUP, IDM_EDIT_UNGROUP,
@@ -107,10 +107,6 @@ void showError(const std::wstring& msg) {
   MessageBoxW(g.hwnd, msg.c_str(), kAppName, MB_OK | MB_ICONWARNING);
 }
 
-std::wstring baseName(const std::wstring& path) {
-  size_t i = path.find_last_of(L"\\/");
-  return i == std::wstring::npos ? path : path.substr(i + 1);
-}
 
 std::wstring knownFolder(int csidl) {
   wchar_t buf[MAX_PATH] = {};
@@ -182,11 +178,38 @@ void rebuildFont() {
 
 // ------------------------------------------------------------- list refresh
 
+std::wstring fullPathOf(const std::string& utf8) {
+  std::wstring w = widen(utf8);
+  wchar_t buf[MAX_PATH * 4];
+  DWORD n = GetFullPathNameW(w.c_str(), (DWORD)(sizeof buf / sizeof buf[0]), buf, nullptr);
+  return (n > 0 && n < sizeof buf / sizeof buf[0]) ? std::wstring(buf, n) : w;
+}
+
+void cmdShowFile() {
+  if (!g.doc || g.doc->path() == ":memory:") return;
+  std::wstring a = L"/select,\"" + fullPathOf(g.doc->path()) + L"\"";
+  ShellExecuteW(g.hwnd, L"open", L"explorer.exe", a.c_str(), nullptr, SW_SHOWNORMAL);
+}
+
+void cmdCopyPath() {
+  if (!g.doc || g.doc->path() == ":memory:") return;
+  std::wstring p = fullPathOf(g.doc->path());
+  if (!OpenClipboard(g.hwnd)) return;
+  EmptyClipboard();
+  HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (p.size() + 1) * sizeof(wchar_t));
+  if (h) {
+    memcpy(GlobalLock(h), p.c_str(), (p.size() + 1) * sizeof(wchar_t));
+    GlobalUnlock(h);
+    if (!SetClipboardData(CF_UNICODETEXT, h)) GlobalFree(h);
+  }
+  CloseClipboard();
+}
+
 void updateTitle() {
   std::wstring t;
   if (g.doc) {
     if (const Page* p = g.doc->page(cv().pageId())) t += widen(p->title) + L" — ";
-    t += (g.doc->path() == ":memory:" ? std::wstring(L"Cairn Guide (changes are not saved)") : baseName(widen(g.doc->path()))) + L" — ";
+    t += (g.doc->path() == ":memory:" ? std::wstring(L"Cairn Guide (changes are not saved)") : fullPathOf(g.doc->path())) + L" — ";
   }
   t += kAppName;
   SetWindowTextW(g.hwnd, t.c_str());
@@ -570,17 +593,49 @@ void cmdExportPng() {
   OPENFILENAMEW ofn{};
   ofn.lStructSize = sizeof ofn;
   ofn.hwndOwner = g.hwnd;
-  ofn.lpstrFilter = L"PNG image (*.png)\0*.png\0";
+  ofn.lpstrFilter = L"PNG image (*.png)\0*.png\0Animated GIF (*.gif)\0*.gif\0";
   ofn.lpstrFile = buf;
   ofn.nMaxFile = 1023;
   ofn.lpstrDefExt = L"png";
   ofn.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
   if (!GetSaveFileNameW(&ofn)) return;
-  if (std::filesystem::exists(std::filesystem::path(std::wstring(buf)))) {
+  std::wstring path = buf;
+  // The chosen filter decides, unless the typed name has its own extension.
+  bool gif = ofn.nFilterIndex == 2;
+  if (path.size() > 4) {
+    std::wstring ext = path.substr(path.size() - 4);
+    for (wchar_t& ch : ext) ch = (wchar_t)towlower(ch);
+    if (ext == L".png") gif = false;
+    else if (ext == L".gif") gif = true;
+    else if (gif) path += L".gif";
+    else path += L".png";
+  }
+  if (std::filesystem::exists(std::filesystem::path(path))) {
     showError(L"That file already exists. Pick a new name; Cairn never overwrites on its own.");
     return;
   }
-  if (!cv().exportPagePng(buf)) showError(L"Couldn't save the page as an image.");
+  if (!gif) {
+    if (!cv().exportPagePng(path)) showError(L"Couldn't save the page as an image.");
+    return;
+  }
+  PropForm f(g.hwnd, L"Animated GIF");
+  int isecs = f.addNumber(L"Length in seconds", 5, 1, 60);
+  int ifps = f.addNumber(L"Frames per second", 10, 1, 25);
+  if (!f.run()) return;
+  Canvas::AnimOptions opt;
+  opt.seconds = f.number(isecs);
+  opt.fps = f.number(ifps);
+  std::wstring msg;
+  switch (cv().exportPageGif(path, opt, msg)) {
+    case 0: break;
+    case 1:
+      showError(L"Nothing on this page moves, so there is nothing to record.\n\nAnimations come from an On-open script "
+                L"(Edit > Add On-Open Script) that uses (every ...) or (after ...) with set-prop! or set-text!. "
+                L"The Cairn Guide has an example. To save a still picture, choose PNG instead.");
+      break;
+    case 2: showError(L"That would make too large a file. Try a shorter length or fewer frames per second."); break;
+    default: showError(msg.empty() ? L"Couldn't save the animation." : msg); break;
+  }
 }
 
 // Each "# heading" becomes a page; everything lands as one undo step per page.
@@ -1244,6 +1299,8 @@ void onCommand(int id, int code, HWND ctl) {
       case IDM_FILE_EXPORTMD: cmdExportMarkdown(); break;
       case IDM_FILE_EXPORTPNG: cmdExportPng(); break;
       case IDM_FILE_IMPORTMD: cmdImportMarkdown(); break;
+      case IDM_FILE_SHOWFILE: cmdShowFile(); break;
+      case IDM_FILE_COPYPATH: cmdCopyPath(); break;
       case IDM_FILE_EXIT: SendMessageW(g.hwnd, WM_CLOSE, 0, 0); break;
 
       case IDM_EDIT_UNDO: if (g.doc) g.doc->undo(); break;
@@ -1381,6 +1438,8 @@ HMENU buildMenu() {
   add(file, IDM_FILE_EXPORTMD, L"Export as &Markdown...");
   add(file, IDM_FILE_EXPORTPNG, L"Export Page as &Image...");
   add(file, IDM_FILE_IMPORTMD, L"&Import Markdown...");
+  add(file, IDM_FILE_SHOWFILE, L"Show File in &Folder");
+  add(file, IDM_FILE_COPYPATH, L"Copy File &Path");
   sep(file);
   add(file, IDM_FILE_EXIT, L"E&xit");
   AppendMenuW(bar, MF_POPUP, (UINT_PTR)file, L"&File");
@@ -1551,6 +1610,8 @@ void updateMenuState() {
   en(IDM_FILE_EXPORTMD, has);
   en(IDM_FILE_EXPORTPNG, has && cv().pageId() != 0);
   en(IDM_FILE_IMPORTMD, has);
+  en(IDM_FILE_SHOWFILE, has && g.doc->path() != ":memory:");
+  en(IDM_FILE_COPYPATH, has && g.doc->path() != ":memory:");
   {
     int ci = currentPageIndex();
     en(IDM_PAGE_MOVEUP, ci > 0);

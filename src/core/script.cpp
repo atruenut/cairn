@@ -1,5 +1,8 @@
 #include "script.h"
 
+#include "lisp.h"
+
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -338,7 +341,73 @@ std::string exec(const Stmt& s, ScriptVars& vars, ScriptHost& host) {
 
 }  // namespace
 
+// ------------------------------------------------------------------ conversion to Lisp
+namespace {
+std::string lispStr(const std::string& s) {
+  std::string o = "\"";
+  for (char c : s) {
+    if (c == '"' || c == '\\') { o += '\\'; o += c; }
+    else if (c == '\n') o += "\\n";
+    else o += c;
+  }
+  return o + "\"";
+}
+
+std::string lispNum(double d) {
+  char b[64];
+  if (d == std::floor(d) && std::fabs(d) < 1e15) std::snprintf(b, sizeof b, "%.0f", d);
+  else std::snprintf(b, sizeof b, "%.17g", d);
+  return b;
+}
+
+std::string toLispExpr(const ExprP& e, std::vector<std::string>& vars) {
+  switch (e->kind) {
+    case Expr::Num: return lispNum(e->num);
+    case Expr::Str: return lispStr(e->str);
+    case Expr::Var:
+      if (std::find(vars.begin(), vars.end(), e->str) == vars.end()) vars.push_back(e->str);
+      return "v:" + e->str;
+    case Expr::Add: return "(l+ " + toLispExpr(e->a, vars) + " " + toLispExpr(e->b, vars) + ")";
+    case Expr::Sub: return "(l- " + toLispExpr(e->a, vars) + " " + toLispExpr(e->b, vars) + ")";
+    case Expr::Neg: return "(l- 0 " + toLispExpr(e->a, vars) + ")";
+  }
+  return "0";
+}
+
+std::string toLispStmt(const Stmt& s, std::vector<std::string>& vars) {
+  auto str = [&](const ExprP& e) { return "(str " + toLispExpr(e, vars) + ")"; };
+  switch (s.kind) {
+    case Stmt::Goto: return "(goto " + str(s.e1) + ")";
+    case Stmt::GotoRel: return "(goto '" + s.name + ")";
+    case Stmt::Back: return "(back)";
+    case Stmt::Stop: return "(stop)";
+    case Stmt::Set:
+      if (std::find(vars.begin(), vars.end(), s.name) == vars.end()) vars.push_back(s.name);
+      return "(set! v:" + s.name + " " + toLispExpr(s.e1, vars) + ")";
+    case Stmt::Text: return "(set-text! " + str(s.e1) + " " + str(s.e2) + ")";
+    case Stmt::Play: return "(play " + str(s.e1) + ")";
+    case Stmt::Open: return "(open " + str(s.e1) + ")";
+    case Stmt::Say: return "(say " + str(s.e1) + ")";
+    case Stmt::If: {
+      std::string cond = s.op.empty() ? "(l-true? " + toLispExpr(s.e1, vars) + ")"
+                                      : "(l-cmp " + lispStr(s.op) + " " + toLispExpr(s.e1, vars) + " " + toLispExpr(s.e2, vars) + ")";
+      return "(when " + cond + " " + toLispStmt(*s.then, vars) + ")";
+    }
+  }
+  return "";
+}
+}  // namespace
+
+std::string legacyToLisp(const std::string& source, std::vector<std::string>& vars) {
+  Program p;
+  if (!parse(source, p).ok) return "";
+  std::string out;
+  for (auto& st : p.stmts) out += toLispStmt(*st.second, vars) + "\n";
+  return out.empty() ? "(begin)\n" : out;
+}
+
 ScriptResult checkScript(const std::string& source) {
+  if (looksLikeLisp(source)) return Lisp::check(source);
   Program p;
   return parse(source, p);
 }

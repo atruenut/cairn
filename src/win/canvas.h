@@ -4,6 +4,7 @@
 
 #include <functional>
 #include "script.h"
+#include "lisp.h"
 #include <map>
 #include <string>
 #include <utility>
@@ -194,6 +195,22 @@ class Canvas {
   friend struct CanvasScriptHost;
   ScriptVars scriptVars_;                // script variables live for the session, per document
   bool runButtonScript(const std::string& source);
+  // The Lisp scripting language. Its definitions live for the session; changes it makes to objects live in
+  // scriptNow_ (shown, never saved) and are dropped when the page changes or Edit mode starts.
+  Lisp lisp_;
+  std::map<int64_t, Object> scriptNow_;
+  DWORD pageTick_ = 0;           // when the current page was shown; the Lisp clock counts from here
+  bool scriptQuiet_ = false;     // exporting an animation: no dialogs, no navigation, no sound
+  void scriptPageReset();
+  void scriptTimerTick();
+  void scriptSchedule();         // starts or stops the 25 ms timer according to whether Lisp timers exist
+  bool runLisp(const std::string& source);
+public:
+  struct AnimOptions { int seconds = 5, fps = 10; };
+  // Plays this page's on-open Lisp scripts on a virtual clock and saves what they do as an animated GIF.
+  // 0 = saved, 1 = nothing on the page animates, 2 = too large, 3 = failed (msg says why when it can).
+  int exportPageGif(const std::wstring& path, const AnimOptions& opt, std::wstring& msg);
+private:
   bool marked_ = false;
   // Sound is per process (one MCI device alias), so its state is shared by every pane.
   static inline int64_t audioObj_ = 0;

@@ -15,10 +15,17 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 namespace cairn {
 
 constexpr size_t kScriptMaxLines = 200, kScriptMaxLine = 2000, kScriptMaxString = 10000;
+
+struct ScriptValue {
+  bool isStr = false;
+  double n = 0;
+  std::string s;
+};
 
 struct ScriptHost {
   virtual ~ScriptHost() = default;
@@ -30,13 +37,13 @@ struct ScriptHost {
   virtual void stop() = 0;
   virtual bool open(const std::string& target) = 0;
   virtual void say(const std::string& message) = 0;
+  // Used by the Lisp language (they default to "not supported" so the older line language needs none of them).
+  // Objects are found by their script name; changes made with setProp last only while the page is shown.
+  virtual bool getProp(const std::string&, const std::string&, ScriptValue&) { return false; }
+  virtual bool setProp(const std::string&, const std::string&, const ScriptValue&) { return false; }
+  virtual std::string pageTitle() { return ""; }
 };
 
-struct ScriptValue {
-  bool isStr = false;
-  double n = 0;
-  std::string s;
-};
 using ScriptVars = std::map<std::string, ScriptValue>;  // names are lower-case
 struct ScriptResult {
   bool ok = true;
@@ -46,6 +53,9 @@ struct ScriptResult {
 
 // Syntax check only; nothing runs. Use when a script is edited.
 ScriptResult checkScript(const std::string& source);
+// Rewrites an older line-style script as Lisp (for exported web pages). Variables become v:name and must be
+// defined as 0 first; their names are returned in `vars`. Returns "" when the script does not parse.
+std::string legacyToLisp(const std::string& source, std::vector<std::string>& vars);
 // Parses, then runs line by line, stopping at the first error. `vars` persists between runs.
 ScriptResult runScript(const std::string& source, ScriptVars& vars, ScriptHost& host);
 

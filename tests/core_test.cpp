@@ -11,6 +11,10 @@
 #include "table.h"
 #include "media.h"
 #include "script.h"
+#include "lisp.h"
+#include "gif.h"
+#include <fstream>
+#include <sstream>
 #include "arrange.h"
 #include "urls.h"
 #include "sha256.h"
@@ -56,7 +60,7 @@ static void testBasicsAndPersistence() {
   int64_t pid;
   {
     auto d = Document::create(path, true);
-    CHECK(d->pages().size() == 4);
+    CHECK(d->pages().size() == 5);
     CHECK(!d->canUndo());  // seeding must not be undoable
     {  // the starter scripting page must hold scripts that actually parse (a dry run needs only the syntax)
       const Page* sp = d->page(d->pageByTitle("Buttons and scripts"));
@@ -64,6 +68,18 @@ static void testBasicsAndPersistence() {
       int scripts = 0;
       if (sp) for (const Object& o : sp->objects) if (o.type == ObjType::Button && !o.prop("script").empty()) ++scripts;
       CHECK(scripts == 1);
+      // every script in the starter pages must be valid Lisp, and the counter must count
+      int lisp = 0;
+      for (const Page& pg : d->pages())
+        for (const Object& o : pg.objects)
+          if (!o.prop("script").empty()) {
+            CHECK(looksLikeLisp(o.prop("script")));
+            CHECK(Lisp::check(o.prop("script")).ok);
+            ++lisp;
+          }
+      CHECK(lisp == 3);
+      std::string out = lispRunCapture("(define clicks 0)\n(set! clicks (+ clicks 1))\n(say clicks)");
+      CHECK(out == "1\n");
     }
     pid = d->addPage("Notes");
     int64_t oid = d->addObject(pid, textObj(10, 10, "hello world"));
@@ -72,7 +88,7 @@ static void testBasicsAndPersistence() {
   }
   {
     auto d = Document::open(path);
-    CHECK(d->pages().size() == 5);
+    CHECK(d->pages().size() == 6);
     const Page* p = d->page(pid);
     CHECK(p && p->title == "Notes");
     CHECK(p && p->objects.size() == 1);
@@ -1418,11 +1434,111 @@ static void testGroups() {
 
 static void testInMemoryDocument() {
   auto d = Document::create(":memory:", true);  // the guide window uses this: no file at all
-  CHECK(d->pages().size() == 4);
+  CHECK(d->pages().size() == 5);
   CHECK(d->pageByTitle("More features") != 0);
   d->addPage("Scratch");
-  CHECK(d->pages().size() == 5);
+  CHECK(d->pages().size() == 6);
   CHECK(!std::filesystem::exists(":memory:"));
+}
+
+
+// Runs every case in tests/lisp_cases.txt (the same file the JavaScript copy is tested against).
+static void testLisp() {
+  std::ifstream f("tests/lisp_cases.txt");
+  CHECK(f.good());
+  std::string line, name, prog, want;
+  int mode = 0, cases = 0;
+  auto finish = [&]() {
+    if (name.empty()) return;
+    ++cases;
+    std::string got = lispRunCapture(prog);
+    if (!want.empty() && want.back() == '\n') want.pop_back();
+    if (!got.empty() && got.back() == '\n') got.pop_back();
+    if (got != want) std::printf("  lisp case '%s'\n    want: %s\n    got:  %s\n", name.c_str(), want.c_str(), got.c_str());
+    CHECK(got == want);
+  };
+  while (std::getline(f, line)) {
+    if (line.rfind("### ", 0) == 0) { finish(); name = line.substr(4); prog.clear(); want.clear(); mode = 1; }
+    else if (line == "---" && mode == 1) mode = 2;
+    else if (mode == 1) prog += line + "\n";
+    else if (mode == 2) want += line + "\n";
+  }
+  finish();
+  CHECK(cases >= 30);
+  CHECK(looksLikeLisp("; hi\n(say 1)"));
+  CHECK(!looksLikeLisp("say \"x\""));
+  CHECK(Lisp::check("(say 1)").ok);
+  ScriptResult bad = Lisp::check("(say 1\n(foo");
+  CHECK(!bad.ok && bad.line >= 1);
+  CHECK(!Lisp::check("(say \"x)").ok);
+  CHECK(!Lisp::check(")").ok);
+  {  // older line-style scripts convert to Lisp for exported pages
+    std::vector<std::string> vars;
+    std::string lisp = legacyToLisp("# note\nset n = n + 1\ntext \"box\" = \"Clicked \" + n + \" times\"\nif n >= 1 then say \"ok \" + n\nsay 7 - 2\nif \"a\" = \"a\" then say \"eq\"\nif n then say \"true\"\nif n != 1 then say \"no\"\nsay -n\ngoto next\n", vars);
+    CHECK(vars.size() == 1 && vars[0] == "n");
+    CHECK(looksLikeLisp(lisp));
+    std::string out = lispRunCapture("(define v:n 0)\n" + lisp);
+    CHECK(out == "ok 1\n5\neq\ntrue\n-1\n[goto next]\n");
+    CHECK(legacyToLisp("bogus", vars).empty());
+  }
+}
+
+
+static void testGif() {
+  const int W = 200, H = 120;
+  std::vector<GifFrame> fr;
+  for (int k = 0; k < 4; ++k) {
+    GifFrame f;
+    f.delayMs = 100;
+    f.px.resize((size_t)W * H);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        uint32_t c = k == 0 ? (uint32_t)(((x * 255 / W) << 16) | ((y * 255 / H) << 8) | ((x ^ y) & 255)) : 0xF0F0F0u;
+        if (k > 0 && x >= 20 + k * 30 && x < 60 + k * 30 && y >= 30 && y < 70) c = 0x2060C0;
+        if (k == 3 && x < 3 && y < 3) c = 0xF0F0F0;
+        f.px[(size_t)y * W + x] = c;
+      }
+    fr.push_back(f);
+  }
+  fr[3] = fr[2];  // identical: becomes a 1-pixel frame
+  std::string gif;
+  CHECK(encodeGif(W, H, fr, 0, gif));
+  CHECK(gif.compare(0, 6, "GIF89a") == 0);
+  CHECK(gif.back() == 0x3B);
+  CHECK(!encodeGif(W, H, {}, 0, gif));
+  std::vector<GifFrame> bad(1);
+  bad[0].px.resize(5);
+  CHECK(!encodeGif(W, H, bad, 0, gif));
+  encodeGif(W, H, fr, 0, gif);
+  std::ofstream("build/native/test.gif", std::ios::binary) << gif;
+}
+
+
+// The exported site must carry working scripts: cairn.js is the language, the page config wires buttons and timers.
+static void testScriptedExport() {
+  std::printf("scripted export\n");
+  auto d = Document::create(tmpPath("cairn_exp.cairn"), true);
+  auto files = exportSite(*d, "Guide");
+  bool js = false, wired = false;
+  std::string jsText;
+  for (const ExportFile& f : files) {
+    if (f.path == "cairn.js") { js = true; jsText = f.data; }
+    if (f.data.find("Cairn.page(") != std::string::npos && f.data.find("data-s=\"0\"") != std::string::npos) wired = true;
+  }
+  CHECK(js);
+  CHECK(wired);
+  std::filesystem::create_directories("build/native/site");
+  for (const ExportFile& f : files) std::ofstream("build/native/site/" + f.path, std::ios::binary) << f.data;
+  // the embedded copy must be the one in src/web (run tools/gen_js.py after editing it)
+  std::ifstream in("src/web/cairn.js", std::ios::binary);
+  std::string disk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  CHECK(disk == std::string(cairnJsSource()));
+  // a page without scripts must not load any
+  auto d2 = Document::create(tmpPath("cairn_exp2.cairn"), false);
+  d2->addPage("Plain");
+  bool anyJs = false;
+  for (const ExportFile& f : exportSite(*d2, "Plain")) if (f.path == "cairn.js" || f.data.find("Cairn.page(") != std::string::npos) anyJs = true;
+  CHECK(!anyJs);
 }
 
 static void testScripts() {
@@ -1516,6 +1632,9 @@ int main() {
   testWikiLinks();
   testAudioSniff();
   testScripts();
+  testLisp();
+  testScriptedExport();
+  testGif();
   testArrange();
   testShapesExport();
   testLines();

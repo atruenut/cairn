@@ -375,6 +375,47 @@ guide window discards it. Leftover `Cairn Guide *.cairn` files from 0.32.0 in th
 removed at startup. The rule I should have followed from the start: a help command must not change
 what is open.
 
+
+## Entry 40: a Lisp, a JavaScript copy of it, and GIFs (0.33.0)
+
+Tom's list after Entry 39: forget printing ("that's dumb", fair), make the scripting language a simple Scheme/Lisp
+that can do more interesting things, make scripts work in exported HTML (translate them to JavaScript), and let a page
+export as an animated GIF or WebM. Also: where does autosave put the file, and why can't I see the path?
+
+**Path.** Autosave writes to the `.cairn` file you chose at New/Open, nowhere else; I never showed it. The title bar now
+carries the full absolute path, File has "Show File in Folder" and "Copy File Path", and the guide window says it isn't
+saved.
+
+**The language.** `src/core/lisp.cpp`: reader, evaluator with tail calls, about 90 builtins. Lists are vectors rather than
+cons cells (simpler, and the JS copy is trivial). Only `#f` is false, as in Scheme. It stays a closed world like the old
+language: every effect goes through `ScriptHost` (which grew `getProp`, `setProp`, `pageTitle`), and a step budget
+(400,000 per run or timer callback) plus a depth cap (180) turn runaway loops and runaway recursion into messages instead of
+hangs. The old line language is untouched; `looksLikeLisp` (first real token is `(`) chooses the engine.
+Two design calls: changes to objects (`set-prop!`, `set-text!`) live in an overlay (`scriptNow_`, read by `eff()`) and are
+never saved, so an animation can't spam the undo history or dirty your file; and `goto` is deferred until the script
+returns, so navigation can't re-enter the interpreter while it is running.
+Timers (`after`, `every`) are driven by a 25 ms Windows timer in the app and by a virtual clock in tests and GIF export.
+
+**JavaScript.** `src/web/cairn.js` is a second implementation of the same language. I did not want "the exported page
+behaves a bit differently". `tests/lisp_cases.txt` holds 36 programs with expected output; `make test` runs them through
+C++, `node tests/lisp_js_test.js` through JS. They agreed after one fix (a test file with a trailing blank line). The JS
+is embedded in the exe as a generated file (`tools/gen_js.py`; a unit test fails if the generated copy drifts from the
+source). Exported pages with scripts get `cairn.js`; objects with a Script name get ids, scripted buttons get `data-s`.
+Old line scripts are converted to Lisp at export (`legacyToLisp`, with `l+` / `l-cmp` helpers that keep their rules for
+text and comparisons). I loaded the exported guide in headless Chromium: the counter counts and says "That's three!", and
+the ball on the Animation page moves and changes colour.
+
+**GIF.** `src/core/gif.cpp`: LZW encoder, one shared palette (exact when the page has <= 256 colours, median cut otherwise),
+frames after the first store only the changed rectangle. PIL decodes the output. In the app the export runs the page's
+on-open scripts in a private Lisp session on a virtual clock (`scriptQuiet_`: no dialogs, no navigation, no sound),
+renders each frame with the same code as the PNG export, and encodes. Under Wine, Animation exported as 50 frames at 10 fps,
+960x640, 32 KB. WebM: not offered; it needs a VP8/VP9 encoder I can't vendor into a 1 MB static exe on a whim.
+
+**Limits I know about.** `string-length` and `substring` count bytes in the app (UTF-8) and UTF-16 units in the browser;
+fine for plain text, wrong for accents. Each pane has its own Lisp session, so variables aren't shared between panes.
+Leaving Edit mode restarts the page's on-open scripts (also true for old line scripts, which may pop up their message
+again). I can't test on real Windows or hear any audio here; the Wine run is the evidence for the GUI parts.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).

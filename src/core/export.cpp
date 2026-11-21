@@ -2,8 +2,11 @@
 #include "arrange.h"
 #include "table.h"
 #include "media.h"
+#include "script.h"
+#include "lisp.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <map>
 
 #include "document.h"
@@ -54,7 +57,7 @@ const char* kStyle =
     ".t a{color:#0b57d0}"
     ".b{display:flex;align-items:center;justify-content:center;text-align:center;border:1px solid #8a8a8a;"
     "border-radius:3px;text-decoration:none;overflow:hidden;white-space:nowrap}"
-    "a.b:hover{filter:brightness(.95)}"
+    "a.b:hover{filter:brightness(.95)}.b[data-s]{cursor:pointer}"
     ".i{display:block}"
     ".au audio{width:100%;height:100%}"
     ".tb{overflow:auto}.tb table{border-collapse:collapse;width:100%}"
@@ -63,6 +66,38 @@ const char* kStyle =
     ".index{max-width:720px;margin:24px auto;padding:0 12px}"
     ".index li{margin:6px 0}.tag{font-size:12px;color:#555;margin-left:8px}";
 
+
+std::string jstr(const std::string& s) {
+  std::string o = "\"";
+  for (unsigned char c : s) {
+    switch (c) {
+      case '"': o += "\\\""; break;
+      case '\\': o += "\\\\"; break;
+      case '\n': o += "\\n"; break;
+      case '\r': o += "\\r"; break;
+      case '\t': o += "\\t"; break;
+      case '<': o += "\\u003c"; break;
+      case '>': o += "\\u003e"; break;
+      case '&': o += "\\u0026"; break;
+      default:
+        if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\u%04x", c); o += b; }
+        else o += (char)c;
+    }
+  }
+  return o + "\"";
+}
+
+std::string lowerAscii(std::string s) {
+  for (char& c : s) if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+  return s;
+}
+
+// Adds attributes to the opening tag of an object's HTML (it always starts with "<tag ").
+void addAttrs(std::string& chunk, const std::string& attrs) {
+  size_t sp = chunk.find(' ');
+  if (sp != std::string::npos) chunk.insert(sp, " " + attrs);
+}
+
 std::string head(const std::string& title) {
   return "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
          "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -70,7 +105,7 @@ std::string head(const std::string& title) {
 }
 
 std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const Page* next,
-                     std::map<long long, std::string>& imageFiles) {
+                     std::map<long long, std::string>& imageFiles, size_t pageIndex, bool& usesScripts) {
   std::string o = head(p.title);
   o += "<nav><a href=\"index.html\">Index</a>";
   if (prev) o += "<a href=\"" + exportPageFile(prev->id) + "\">&larr; " + esc(prev->title) + "</a>";
@@ -78,8 +113,18 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
   o += "</nav>\n";
   o += "<div class=\"page\" style=\"width:" + std::to_string(p.w) + "px;height:" + std::to_string(p.h) +
        "px;background:" + css(p.bg) + "\">\n";
-  int z = 0;
+  int z = 0, objNo = 0;
+  std::vector<std::string> btnScripts, openScripts, objJson;
+  std::vector<std::pair<std::string, std::string>> audioIds;
+  std::vector<std::string> legacyVars;
+  auto asLisp = [&](const std::string& src) -> std::string {
+    if (src.empty()) return "";
+    if (looksLikeLisp(src)) return src;
+    return legacyToLisp(src, legacyVars);  // "" if it does not parse
+  };
   for (const Object& ob : p.objects) {
+    size_t chunkStart = o.size();
+    ++objNo;
     std::string pos = "left:" + std::to_string(ob.x) + "px;top:" + std::to_string(ob.y) +
                       "px;width:" + std::to_string(ob.w) + "px;height:" + std::to_string(ob.h) +
                       "px;z-index:" + std::to_string(++z) + ";";
@@ -105,7 +150,7 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         std::string href;
         long long target = ob.propInt("target", 0);
         if (!ob.prop("script").empty()) {
-          // a scripted button does something else in Cairn; a static page cannot, so it is not a link
+          // a scripted button runs its script (cairn.js); it is not a link
         } else if (target > 0 && doc.page(target)) href = exportPageFile(target);
         else {
           std::string open = ob.prop("open");
@@ -178,7 +223,7 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         break;
       }
       case ObjType::Script:
-        break;  // behaviour only; the exported site has no scripts
+        break;  // behaviour only; its script is collected below and run by cairn.js
       case ObjType::Folder:
         break;  // a live view of the viewer's own disk; nothing to publish
       case ObjType::Image: {
@@ -197,8 +242,65 @@ std::string pageHtml(const Document& doc, const Page& p, const Page* prev, const
         break;
       }
     }
+    // What makes an object scriptable on the exported page: an id for scripts to find it by, and click handlers.
+    {
+      std::string chunk = o.substr(chunkStart);
+      const std::string sname = ob.prop("sname");
+      if (ob.type == ObjType::Script) {
+        std::string lisp = asLisp(ob.prop("script"));
+        if (!lisp.empty()) openScripts.push_back(lisp);
+      }
+      if (ob.type == ObjType::Button && !ob.prop("script").empty()) {
+        std::string lisp = asLisp(ob.prop("script"));
+        if (!lisp.empty()) {
+          addAttrs(chunk, "data-s=\"" + std::to_string(btnScripts.size()) + "\"");
+          btnScripts.push_back(lisp);
+        }
+      }
+      bool visible = ob.type == ObjType::Text || ob.type == ObjType::Button || ob.type == ObjType::Rect ||
+                     ob.type == ObjType::Audio || ob.type == ObjType::Image || ob.type == ObjType::Table;
+      if (visible && (!sname.empty() || ob.type == ObjType::Audio)) {
+        std::string id = "o" + std::to_string(objNo);
+        addAttrs(chunk, "id=\"" + id + "\"");
+        if (!sname.empty()) {
+          const char* t = ob.type == ObjType::Text ? "text" : ob.type == ObjType::Button ? "button" : ob.type == ObjType::Rect ? "shape" : "other";
+          std::string text = ob.type == ObjType::Text ? ob.prop("text") : ob.type == ObjType::Button ? ob.prop("label") : "";
+          objJson.push_back(jstr(lowerAscii(sname)) + ":{\"id\":" + jstr(id) + ",\"t\":\"" + t + "\",\"x\":" + std::to_string(ob.x) +
+                            ",\"y\":" + std::to_string(ob.y) + ",\"w\":" + std::to_string(ob.w) + ",\"h\":" + std::to_string(ob.h) +
+                            ",\"fill\":" + std::to_string(ob.propInt("fill", -1)) + ",\"color\":" + std::to_string(ob.propInt("color", -1)) +
+                            ",\"line\":" + std::to_string(ob.propInt("line", -1)) + ",\"text\":" + jstr(text) + "}");
+        }
+        if (ob.type == ObjType::Audio) {
+          if (!sname.empty()) audioIds.emplace_back(lowerAscii(sname), id);
+          if (!ob.prop("name").empty()) audioIds.emplace_back(lowerAscii(ob.prop("name")), id);
+        }
+      }
+      o.resize(chunkStart);
+      o += chunk;
+    }
   }
-  o += "</div>\n</body></html>\n";
+  o += "</div>\n";
+  if (!btnScripts.empty() || !openScripts.empty()) {
+    usesScripts = true;
+    std::string init;
+    for (const std::string& v : legacyVars) init += "(define v:" + v + " 0)\n";
+    std::string cfg = "{\"title\":" + jstr(p.title) + ",\"cur\":" + std::to_string(pageIndex) + ",\"order\":[";
+    const std::vector<Page>& all = doc.pages();
+    for (size_t i = 0; i < all.size(); ++i) cfg += (i ? "," : "") + jstr(exportPageFile(all[i].id));
+    cfg += "],\"pages\":{";
+    for (size_t i = 0; i < all.size(); ++i) cfg += (i ? "," : "") + jstr(lowerAscii(all[i].title)) + ":" + jstr(exportPageFile(all[i].id));
+    cfg += "},\"init\":" + jstr(init) + ",\"open\":[";
+    for (size_t i = 0; i < openScripts.size(); ++i) cfg += (i ? "," : "") + jstr(openScripts[i]);
+    cfg += "],\"btn\":[";
+    for (size_t i = 0; i < btnScripts.size(); ++i) cfg += (i ? "," : "") + jstr(btnScripts[i]);
+    cfg += "],\"objs\":{";
+    for (size_t i = 0; i < objJson.size(); ++i) cfg += (i ? "," : "") + objJson[i];
+    cfg += "},\"audio\":{";
+    for (size_t i = 0; i < audioIds.size(); ++i) cfg += (i ? "," : "") + jstr(audioIds[i].first) + ":" + jstr(audioIds[i].second);
+    cfg += "}}";
+    o += "<script src=\"cairn.js\"></script>\n<script>Cairn.page(" + cfg + ");</script>\n";
+  }
+  o += "</body></html>\n";
   return o;
 }
 
@@ -220,10 +322,12 @@ std::vector<ExportFile> exportSite(const Document& doc, const std::string& siteT
   out.push_back({"index.html", idx});
 
   std::map<long long, std::string> imageFiles;
+  bool usesScripts = false;
   for (size_t i = 0; i < pages.size(); ++i)
     out.push_back({exportPageFile(pages[i].id),
                    pageHtml(doc, pages[i], i > 0 ? &pages[i - 1] : nullptr,
-                            i + 1 < pages.size() ? &pages[i + 1] : nullptr, imageFiles)});
+                            i + 1 < pages.size() ? &pages[i + 1] : nullptr, imageFiles, i, usesScripts)});
+  if (usesScripts) out.push_back({"cairn.js", cairnJsSource()});
   for (const auto& kv : imageFiles) {
     std::string data;
     if (doc.blob(kv.first, data)) out.push_back({kv.second, data});

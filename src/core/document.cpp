@@ -994,6 +994,7 @@ void Document::seedStarter() {
   int64_t home = addPage("Welcome");
   int64_t tour = addPage("Quick tour");
   int64_t scripts = addPage("Buttons and scripts");
+  int64_t anim = addPage("Animation");
   int64_t more = addPage("More features");
 
   auto text = [](int x, int y, int w, int h, const char* t, int size, bool bold, int color) {
@@ -1064,7 +1065,8 @@ void Document::seedStarter() {
   }
   tourObjs.push_back(button(40, 470, 200, 44, "Back to Welcome", home));
   tourObjs.push_back(button(260, 470, 240, 44, "Buttons and scripts", scripts));
-  tourObjs.push_back(button(520, 470, 200, 44, "More features", more));
+  tourObjs.push_back(button(520, 470, 200, 44, "Animation", anim));
+  tourObjs.push_back(button(740, 470, 180, 44, "More features", more));
   addObjects(tour, std::move(tourObjs), "Starter");
 
   // A scripting page that explains itself: the buttons on it really run the scripts it describes.
@@ -1080,40 +1082,86 @@ void Document::seedStarter() {
     o.setProp("sname", name);
     return o;
   };
+  auto scriptObj = [](int x, int y, const char* src) {
+    Object o;
+    o.type = ObjType::Script;
+    o.x = x; o.y = y; o.w = 320; o.h = 36;
+    o.setProp("script", src);
+    return o;
+  };
   std::vector<Object> so;
-  so.push_back(text(40, 30, 880, 44, "Buttons and scripts", 26, true, 0x1F3A5F));
-  so.push_back(text(40, 84, 880, 150,
-                    "A script is a few lines of instructions you attach to a button. When you click the "
-                    "button in Run mode (Ctrl+E), Cairn follows the lines one by one, top to bottom.\n\n"
-                    "To write one: switch to Edit mode, double-click a button, and type lines into the "
-                    "Script box. Each line is one instruction. Lines starting with # are notes to yourself.",
+  so.push_back(text(40, 24, 880, 44, "Buttons and scripts", 26, true, 0x1F3A5F));
+  so.push_back(text(40, 76, 880, 120,
+                    "A script is a small program you attach to a button, or to the page itself. Cairn's scripting "
+                    "language is a tiny Lisp: everything is written as (a word followed by its inputs) in brackets. "
+                    "For example (+ 1 2) is 3 and (say \"Hi\") shows a message.\n\n"
+                    "To write one: Edit mode (Ctrl+E), double-click a button, and type into its Script box. "
+                    "Lines starting with ; are notes to yourself.",
                     14, false, 0x222222));
-  so.push_back(text(40, 250, 420, 28, "Try it: a counter", 16, true, 0x1F3A5F));
-  so.push_back(named(text(40, 286, 420, 34, "Not clicked yet", 16, false, 0x222222), "Counter"));
-  so.push_back(scriptButton(40, 330, 200, 44, "Click me",
-                            "set n = n + 1\ntext \"Counter\" = \"Clicked \" + n + \" times\"\n"
-                            "if n >= 3 then say \"That's three!\""));
-  so.push_back(text(500, 250, 420, 28, "What the script says", 16, true, 0x1F3A5F));
-  so.push_back(text(500, 286, 420, 120,
-                    "set n = n + 1        add one to a counter named n\n"
-                    "text \"Counter\" = ...  change the text box whose Script name is Counter\n"
-                    "if n >= 3 then ...   only do the rest of the line when n is 3 or more",
+  so.push_back(text(40, 214, 420, 28, "Try it: a counter", 16, true, 0x1F3A5F));
+  so.push_back(named(text(40, 248, 420, 34, "Not clicked yet", 16, false, 0x222222), "Counter"));
+  so.push_back(scriptButton(40, 292, 200, 44, "Click me",
+                            "(set! clicks (+ clicks 1))\n"
+                            "(set-text! \"Counter\" (str \"Clicked \" clicks \" times\"))\n"
+                            "(when (>= clicks 3) (say \"That's three!\"))"));
+  so.push_back(text(500, 214, 420, 28, "What it says", 16, true, 0x1F3A5F));
+  so.push_back(text(500, 248, 420, 150,
+                    "(set! clicks (+ clicks 1))   add one to clicks\n"
+                    "(set-text! \"Counter\" ...)    change the text box whose Script name is Counter\n"
+                    "(str \"a\" 1 \"b\")             join text and numbers into one piece of text\n"
+                    "(when test ...)             only do the rest when the test is true\n\n"
+                    "The first line of the page's own On-open script, (define clicks 0), made the variable.",
                     13, false, 0x33414F));
-  so.push_back(text(40, 410, 880, 28, "Everything a script can do", 16, true, 0x1F3A5F));
-  so.push_back(text(40, 446, 880, 190,
-                    "goto \"Page title\"   go to a page (also: goto next, prev, first, last, and back)\n"
-                    "set x = ...          remember a number or text (+ joins text)\n"
-                    "text \"Name\" = ...   change a text box (give it a Script name in its Properties)\n"
-                    "play \"Name\"  /  stop   start or stop an audio clip\n"
-                    "open \"address\"      open a web address or file\n"
-                    "say ...              show a message box\n\n"
-                    "A script can also belong to the page: Edit > Add On-Open Script. It runs every time the page "
-                    "is opened in Run mode (handy for resetting a counter or jumping somewhere).\n\n"
-                    "Scripts are deliberately small and safe: no loops, no changing files, no network "
-                    "access beyond opening what a normal link button would open.",
+  so.push_back(text(40, 372, 880, 28, "What a script can do", 16, true, 0x1F3A5F));
+  so.push_back(text(40, 406, 880, 240,
+                    "Remember things: (define x 5)  (set! x (+ x 1))  (define (double n) (* n 2))\n"
+                    "Decide: (if (> x 3) \"big\" \"small\")  (cond ((< x 0) \"neg\") (else \"ok\"))  and  or  not\n"
+                    "Lists: (list 1 2 3)  (map double (list 1 2 3))  (filter odd? (range 10))  (nth lst 0)\n"
+                    "Text: (str ...)  (string-upcase s)  (substring s 0 3)  (string-length s)\n"
+                    "Repeat: (dotimes (i 5) ...)  (while test ...)  (for-each fn list)  (random 10)\n"
+                    "Pages: (goto \"Page title\")  (goto 'next)  (back)     Sound: (play \"Name\")  (stop)\n"
+                    "Objects: (get \"Name\" 'x)  (set-prop! \"Name\" 'x 200)  also y w h fill color line text\n"
+                    "Time: (after 1000 (lambda () ...))  (every 40 (lambda () ...))  (cancel-timers)\n"
+                    "Outside: (open \"https://...\")   Message: (say \"hello\")\n\n"
+                    "Changes to objects last while the page is shown and are never saved. Scripts are deliberately "
+                    "safe: they can't change your files or reach the network beyond what a link button could open, "
+                    "and a script that runs too long is stopped. Older line-style scripts (set n = n + 1) still work.",
                     13, false, 0x222222));
-  so.push_back(button(40, 660, 200, 44, "Back to the tour", tour));
+  so.push_back(scriptObj(40, 660, "(define clicks 0)"));
+  so.push_back(button(300, 660, 200, 40, "Back to the tour", tour));
+  so.push_back(button(520, 660, 200, 40, "See an animation", anim));
   addObjects(scripts, std::move(so), "Starter");
+
+  // An animated page: the shape is moved by a timer script; File > Export Page as Image can save it as a GIF.
+  {
+    std::vector<Object> ao;
+    ao.push_back(text(40, 24, 880, 44, "Animation", 26, true, 0x1F3A5F));
+    ao.push_back(text(40, 76, 880, 70,
+                      "This page animates itself when it is opened in Run mode (Ctrl+E). A timer in the page's "
+                      "On-open script moves the circle and changes its colour many times a second.\n"
+                      "Save it as a moving picture with File > Export Page as Image, choosing Animated GIF.",
+                      14, false, 0x222222));
+    Object ball;
+    ball.type = ObjType::Rect;
+    ball.x = 400; ball.y = 300; ball.w = 70; ball.h = 70;
+    ball.setPropInt("kind", 1);
+    ball.setPropInt("fill", 0x3C78D8);
+    ball.setPropInt("line", 0x1F3A5F);
+    ball.setPropInt("lw", 2);
+    ball.setProp("sname", "ball");
+    ao.push_back(ball);
+    ao.push_back(scriptObj(40, 580,
+                           "; Runs when this page opens. t counts the frames.\n"
+                           "(define t 0)\n"
+                           "(every 40\n"
+                           "  (lambda ()\n"
+                           "    (set! t (+ t 1))\n"
+                           "    (set-prop! \"ball\" 'x (+ 400 (* 300 (sin (/ t 10)))))\n"
+                           "    (set-prop! \"ball\" 'y (+ 300 (* 90 (cos (/ t 7)))))\n"
+                           "    (set-prop! \"ball\" 'fill (rgb (+ 128 (* 120 (sin (/ t 15)))) 100 (- 255 (* 100 (cos (/ t 9))))))))"));
+    ao.push_back(button(40, 520, 200, 40, "Back to the tour", tour));
+    addObjects(anim, std::move(ao), "Starter");
+  }
 
   // Everything added after the basics, one line each. Two columns of separate objects, as on the tour page.
   const Row more_rows[] = {
@@ -1125,9 +1173,9 @@ void Document::seedStarter() {
       {"Align / space", "Select several objects, then Edit > Align Objects"},
       {"Group", "Ctrl+G groups the selection; Ctrl+Shift+G ungroups. Edit > Bring Forward / Send Backward"},
       {"Split view", "Ctrl+\\ shows two pages side by side; drag the divider between them"},
-      {"Page script", "Edit > Add On-Open Script runs when the page opens in Run mode"},
+      {"Page script", "Edit > Add On-Open Script runs when the page opens in Run mode; use it for animation"},
       {"Markdown", "File > Export as Markdown / Import Markdown"},
-      {"Export", "File > Export as Website, or Export Page as Image for a PNG of the page"},
+      {"Export", "File > Export as Website (scripts keep working), or Export Page as Image: PNG or animated GIF"},
   };
   std::vector<Object> mo;
   mo.push_back(text(40, 24, 880, 44, "More features", 26, true, 0x1F3A5F));

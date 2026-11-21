@@ -2,6 +2,7 @@
 #include "table.h"
 #include "media.h"
 #include "script.h"
+#include "gif.h"
 #include "arrange.h"
 #include <mmsystem.h>
 
@@ -449,6 +450,8 @@ void Canvas::setDocument(Document* d) {
   cancelDrag();
   doc_ = d;
   scriptVars_.clear();
+  lisp_.reset();
+  scriptPageReset();
   pageId_ = 0;
   sel_.clear();
   scrollX_ = scrollY_ = 0;
@@ -466,6 +469,7 @@ void Canvas::setPage(int64_t id) {
   if (!same) {
     scrollX_ = scrollY_ = 0;
     audioStop();  // sound belongs to the page it was started on
+    scriptPageReset();
     audioAutoplay();
     runOpenScripts();
   }
@@ -496,6 +500,8 @@ void Canvas::setEditMode(bool on) {
   cancelDrag();
   edit_ = on;
   if (!on) sel_.clear();
+  scriptPageReset();  // Edit mode shows the page as it is saved; Run mode starts its scripts afresh
+  if (!on) runOpenScripts();
   InvalidateRect(hwnd_, nullptr, FALSE);
   notify();
 }
@@ -607,7 +613,12 @@ int Canvas::snapv(int v) const {
 
 const Object& Canvas::eff(const Object& o) const {
   auto it = dragNow_.find(o.id);
-  return it == dragNow_.end() ? o : it->second;
+  if (it != dragNow_.end()) return it->second;
+  if (!scriptNow_.empty() && !edit_) {
+    auto sn = scriptNow_.find(o.id);
+    if (sn != scriptNow_.end()) return sn->second;
+  }
+  return o;
 }
 
 // ---------------------------------------------------------------- painting
@@ -1858,7 +1869,7 @@ void Canvas::addObject(ObjType t, int cx, int cy) {
     o.setPropInt("size", 12);
   } else if (t == ObjType::Script) {
     o.w = 280; o.h = 56;
-    o.setProp("script", "# These lines run each time this page is opened in Run mode.\nsay \"Hello from this page\"");
+    o.setProp("script", "; These run each time this page is opened in Run mode.\n(say \"Hello from this page\")");
   } else if (t == ObjType::Button) {
     o.w = 160; o.h = 40;
     o.setProp("label", "Button");
@@ -1986,7 +1997,7 @@ bool Canvas::exportPagePng(const std::wstring& path) {
   HBRUSH pb = CreateSolidBrush(toColorRef(p->bg));
   FillRect(dc, &pr, pb);
   DeleteObject(pb);
-  for (const Object& o : p->objects) drawObject(dc, o, false);
+  for (const Object& o : p->objects) drawObject(dc, eff(o), false);
   exporting_ = false;
   zoom_ = savedZoom;
   edit_ = savedEdit;
@@ -2067,7 +2078,7 @@ void Canvas::editProperties() {
     }
     itarget = f.addCombo(L"Go to page", items, sel);
     iopen = f.addText(L"Open file or URL", widen(a.prop("open")));
-    iscript = f.addText(L"Script (one command per line; replaces the two above)", toEditText(a.prop("script")), true);
+    iscript = f.addText(L"Script (Lisp, for example (say \"Hi\"); replaces the two above)", toEditText(a.prop("script")), true);
     isize = f.addNumber(L"Font size (pt)", a.propInt("size", 13), 6, 200);
     ibold = f.addCheck(L"Bold", a.propInt("bold", 0) != 0);
     icolor = f.addColor(L"Text color", a.propInt("color", 0x000000), false);
@@ -2274,6 +2285,7 @@ LRESULT Canvas::procInner(UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
       if (w == 1) animTick();
       else if (w == 2) InvalidateRect(hwnd_, nullptr, FALSE);  // moves the audio progress bar
+      else if (w == 3) scriptTimerTick();
       return 0;
     case WM_RBUTTONDOWN: {
       if (!doc_ || !curPage()) break;
@@ -2787,6 +2799,8 @@ void Canvas::addFilesAt(const std::vector<std::wstring>& files, int px, int py) 
 
 struct CanvasScriptHost : ScriptHost {
   Canvas& c;
+  bool defer = false;                // Lisp: a goto takes effect when the script has finished
+  std::function<void()> pending;
   explicit CanvasScriptHost(Canvas& cv) : c(cv) {}
   static std::string lower(std::string s) {
     for (char& ch : s) ch = (char)std::tolower((unsigned char)ch);
@@ -2800,11 +2814,25 @@ struct CanvasScriptHost : ScriptHost {
       if (o.type == t && (lower(o.prop("sname")) == want || (alsoFileName && lower(o.prop("name")) == want))) return &o;
     return nullptr;
   }
+  const Object* findAny(const std::string& name) const {
+    const Page* p = c.curPage();
+    if (!p) return nullptr;
+    std::string want = lower(name);
+    for (const Object& o : p->objects)
+      if (!o.prop("sname").empty() && lower(o.prop("sname")) == want) return &o;
+    return nullptr;
+  }
+  bool nav(int64_t id) {
+    if (!c.onNavigate) return false;
+    if (c.scriptQuiet_) return true;
+    Canvas* cv = &c;
+    if (defer) pending = [cv, id] { if (cv->onNavigate) cv->onNavigate(id); };
+    else c.onNavigate(id);
+    return true;
+  }
   bool gotoPage(const std::string& title) override {
     int64_t id = c.doc_->pageByTitle(title);
-    if (!id || !c.onNavigate) return false;
-    c.onNavigate(id);
-    return true;
+    return id && nav(id);
   }
   bool gotoRelative(const std::string& which) override {
     const auto& pages = c.doc_->pages();
@@ -2816,12 +2844,14 @@ struct CanvasScriptHost : ScriptHost {
     else if (which == "prev") { if (cur == 0) return false; to = cur - 1; }
     else if (which == "first") to = 0;
     else to = pages.size() - 1;
-    c.onNavigate(pages[to].id);
-    return true;
+    return nav(pages[to].id);
   }
   bool goBack() override {
     if (!c.onBack) return false;
-    c.onBack();
+    if (c.scriptQuiet_) return true;
+    Canvas* cv = &c;
+    if (defer) pending = [cv] { if (cv->onBack) cv->onBack(); };
+    else c.onBack();
     return true;
   }
   bool setText(const std::string& name, const std::string& text) override {
@@ -2835,20 +2865,77 @@ struct CanvasScriptHost : ScriptHost {
   }
   bool play(const std::string& name) override {
     const Object* o = find(ObjType::Audio, name, true);
-    return o && c.audioStart(*o);
+    if (!o) return false;
+    return c.scriptQuiet_ ? true : c.audioStart(*o);
   }
-  void stop() override { c.audioStop(); }
+  void stop() override { if (!c.scriptQuiet_) c.audioStop(); }
   bool open(const std::string& target) override {
     if (!c.onOpenLink || target.empty()) return false;
+    if (c.scriptQuiet_) return true;
     c.onOpenLink(widen(target));  // the same checks as any link button (unknown schemes, programs, ...)
     return true;
   }
   void say(const std::string& message) override {
+    if (c.scriptQuiet_) return;
     MessageBoxW(GetParent(c.hwnd_), widen(message).c_str(), L"Cairn", MB_OK | MB_ICONINFORMATION);
+  }
+  std::string pageTitle() override {
+    const Page* p = c.curPage();
+    return p ? p->title : "";
+  }
+  const Object& current(const Object& o) const {
+    auto it = c.scriptNow_.find(o.id);
+    return it == c.scriptNow_.end() ? o : it->second;
+  }
+  bool getProp(const std::string& name, const std::string& prop, ScriptValue& out) override {
+    const Object* base = findAny(name);
+    if (!base) return false;
+    const Object& o = current(*base);
+    auto num = [&](double n) { out.isStr = false; out.n = n; return true; };
+    auto str = [&](const std::string& s) { out.isStr = true; out.s = s; return true; };
+    if (prop == "x") return num(o.x);
+    if (prop == "y") return num(o.y);
+    if (prop == "w") return num(o.w);
+    if (prop == "h") return num(o.h);
+    if (prop == "fill" || prop == "color" || prop == "line") return num(o.propInt(prop, -1));
+    if (prop == "text") {
+      if (o.type == ObjType::Text) return str(o.prop("text"));
+      if (o.type == ObjType::Button) return str(o.prop("label"));
+    }
+    return false;
+  }
+  bool setProp(const std::string& name, const std::string& prop, const ScriptValue& v) override {
+    const Object* base = findAny(name);
+    if (!base) return false;
+    Object a = current(*base);
+    double d = v.isStr ? std::strtod(v.s.c_str(), nullptr) : v.n;
+    int n = (int)std::lround(std::clamp(d, -100000.0, 100000.0));
+    if (prop == "x") a.x = n;
+    else if (prop == "y") a.y = n;
+    else if (prop == "w") a.w = std::max(1, n);
+    else if (prop == "h") a.h = std::max(1, n);
+    else if (prop == "fill" || prop == "line") a.setPropInt(prop, n < 0 ? -1 : (n & 0xFFFFFF));
+    else if (prop == "color") a.setPropInt(prop, n & 0xFFFFFF);
+    else if (prop == "text") {
+      std::string t = v.isStr ? v.s : [&] {
+        char b[64];
+        if (v.n == std::floor(v.n) && std::fabs(v.n) < 1e15) std::snprintf(b, sizeof b, "%.0f", v.n);
+        else std::snprintf(b, sizeof b, "%.10g", v.n);
+        return std::string(b);
+      }();
+      if (t.size() > kScriptMaxString) t.resize(kScriptMaxString);
+      if (a.type == ObjType::Text) { a.setProp("text", t); a.props.erase("runs"); }
+      else if (a.type == ObjType::Button) a.setProp("label", t);
+      else return false;
+    } else return false;
+    c.scriptNow_[a.id] = a;
+    InvalidateRect(c.hwnd_, nullptr, FALSE);
+    return true;
   }
 };
 
 bool Canvas::runButtonScript(const std::string& source) {
+  if (looksLikeLisp(source)) return runLisp(source);
   CanvasScriptHost host(*this);
   ScriptResult r = runScript(source, scriptVars_, host);
   if (!r.ok) {
@@ -2857,6 +2944,155 @@ bool Canvas::runButtonScript(const std::string& source) {
   }
   InvalidateRect(hwnd_, nullptr, FALSE);
   return r.ok;
+}
+
+namespace {
+bool scriptBusy = false;  // a Lisp script is running (a message box inside it keeps timers ticking)
+}
+
+bool Canvas::runLisp(const std::string& source) {
+  if (scriptBusy) return false;
+  scriptBusy = true;
+  CanvasScriptHost host(*this);
+  host.defer = true;
+  lisp_.setClock((long)(GetTickCount() - pageTick_));
+  ScriptResult r = lisp_.run(source, host);
+  scriptBusy = false;
+  if (!r.ok && !scriptQuiet_) {
+    std::wstring m = L"The script stopped at line " + std::to_wstring(r.line) + L":\n" + widen(r.error);
+    MessageBoxW(GetParent(hwnd_), m.c_str(), L"Cairn", MB_OK | MB_ICONINFORMATION);
+  }
+  scriptSchedule();
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  if (r.ok && host.pending) host.pending();
+  return r.ok;
+}
+
+void Canvas::scriptSchedule() {
+  if (!hwnd_) return;
+  if (lisp_.hasTimers() && !edit_) SetTimer(hwnd_, 3, 25, nullptr);
+  else KillTimer(hwnd_, 3);
+}
+
+void Canvas::scriptPageReset() {
+  scriptNow_.clear();
+  lisp_.cancelTimers();
+  lisp_.setClock(0);
+  pageTick_ = GetTickCount();
+  if (hwnd_) {
+    KillTimer(hwnd_, 3);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+}
+
+void Canvas::scriptTimerTick() {
+  if (scriptBusy) return;
+  if (!doc_ || edit_ || !lisp_.hasTimers()) {
+    scriptSchedule();
+    return;
+  }
+  scriptBusy = true;
+  CanvasScriptHost host(*this);
+  host.defer = true;
+  ScriptResult r = lisp_.tick((long)(GetTickCount() - pageTick_), host);
+  scriptBusy = false;
+  if (!r.ok) {
+    std::wstring m = L"The script stopped:\n" + widen(r.error);
+    MessageBoxW(GetParent(hwnd_), m.c_str(), L"Cairn", MB_OK | MB_ICONINFORMATION);
+  }
+  scriptSchedule();
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  if (r.ok && host.pending) host.pending();
+}
+
+int Canvas::exportPageGif(const std::wstring& path, const AnimOptions& opt, std::wstring& msg) {
+  const Page* p = curPage();
+  if (!p || !doc_) return 3;
+  int fps = std::clamp(opt.fps, 1, 25), secs = std::clamp(opt.seconds, 1, 60);
+  int frames = fps * secs;
+  if ((long long)p->w * p->h * frames > 60ll * 1000 * 1000) return 2;
+  std::vector<std::string> scripts;
+  for (const Object& o : p->objects)
+    if (o.type == ObjType::Script && looksLikeLisp(o.prop("script"))) scripts.push_back(o.prop("script"));
+  if (scripts.empty()) return 1;
+
+  BITMAPINFO bi{};
+  bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+  bi.bmiHeader.biWidth = p->w;
+  bi.bmiHeader.biHeight = -p->h;
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bmp = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (!bmp || !bits) return 3;
+  HDC dc = CreateCompatibleDC(nullptr);
+  HGDIOBJ old = SelectObject(dc, bmp);
+
+  std::map<int64_t, Object> savedOverlay;
+  savedOverlay.swap(scriptNow_);
+  double savedZoom = zoom_;
+  bool savedEdit = edit_;
+  zoom_ = 96.0 / dpi_;
+  edit_ = false;
+  exporting_ = true;
+  scriptQuiet_ = true;
+  clearFonts();
+
+  int result = 0;
+  std::vector<GifFrame> out;
+  {
+    Lisp sim;
+    CanvasScriptHost host(*this);
+    host.defer = true;  // navigation is ignored while exporting (scriptQuiet_), this only avoids touching the app
+    sim.setClock(0);
+    for (const std::string& src : scripts) {
+      ScriptResult r = sim.run(src, host);
+      if (!r.ok) { msg = L"A script stopped at line " + std::to_wstring(r.line) + L": " + widen(r.error); result = 3; break; }
+    }
+    if (result == 0 && !sim.hasTimers()) result = 1;
+    for (int f = 0; result == 0 && f < frames; ++f) {
+      if (f > 0) {
+        ScriptResult r = sim.tick((long)f * 1000 / fps, host);
+        if (!r.ok) { msg = L"A script stopped: " + widen(r.error); result = 3; break; }
+      }
+      RECT pr{0, 0, p->w, p->h};
+      HBRUSH pb = CreateSolidBrush(toColorRef(p->bg));
+      FillRect(dc, &pr, pb);
+      DeleteObject(pb);
+      for (const Object& o : p->objects) drawObject(dc, eff(o), false);
+      GdiFlush();
+      GifFrame gf;
+      gf.delayMs = 1000 / fps;
+      const uint32_t* px = (const uint32_t*)bits;
+      gf.px.assign(px, px + (size_t)p->w * p->h);
+      out.push_back(std::move(gf));
+    }
+  }
+  scriptQuiet_ = false;
+  exporting_ = false;
+  zoom_ = savedZoom;
+  edit_ = savedEdit;
+  scriptNow_.swap(savedOverlay);
+  clearFonts();
+  SelectObject(dc, old);
+  DeleteDC(dc);
+  DeleteObject(bmp);
+  if (result != 0) return result;
+
+  std::string gif;
+  if (!encodeGif(p->w, p->h, out, 0, gif)) return 3;
+  HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return 3;
+  DWORD wrote = 0;
+  BOOL ok = WriteFile(h, gif.data(), (DWORD)gif.size(), &wrote, nullptr);
+  CloseHandle(h);
+  if (!ok || wrote != gif.size()) {
+    DeleteFileW(path.c_str());
+    return 3;
+  }
+  InvalidateRect(hwnd_, nullptr, FALSE);
+  return 0;
 }
 
 // ---------------------------------------------------------------- audio
