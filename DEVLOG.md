@@ -397,7 +397,7 @@ returns, so navigation can't re-enter the interpreter while it is running.
 Timers (`after`, `every`) are driven by a 25 ms Windows timer in the app and by a virtual clock in tests and GIF export.
 
 **JavaScript.** `src/web/cairn.js` is a second implementation of the same language. I did not want "the exported page
-behaves a bit differently". `tests/lisp_cases.txt` holds 36 programs with expected output; `make test` runs them through
+behaves a bit differently". `tests/lisp_cases.txt` holds 35 programs with expected output; `make test` runs them through
 C++, `node tests/lisp_js_test.js` through JS. They agreed after one fix (a test file with a trailing blank line). The JS
 is embedded in the exe as a generated file (`tools/gen_js.py`; a unit test fails if the generated copy drifts from the
 source). Exported pages with scripts get `cairn.js`; objects with a Script name get ids, scripted buttons get `data-s`.
