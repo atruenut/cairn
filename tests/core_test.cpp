@@ -1416,6 +1416,15 @@ static void testGroups() {
   std::filesystem::remove(path);
 }
 
+static void testInMemoryDocument() {
+  auto d = Document::create(":memory:", true);  // the guide window uses this: no file at all
+  CHECK(d->pages().size() == 4);
+  CHECK(d->pageByTitle("More features") != 0);
+  d->addPage("Scratch");
+  CHECK(d->pages().size() == 5);
+  CHECK(!std::filesystem::exists(":memory:"));
+}
+
 static void testScripts() {
   std::printf("scripts\n");
   using namespace cairn;
@@ -1513,6 +1522,7 @@ int main() {
   testShapeHit();
   testReorderStep();
   testGroups();
+  testInMemoryDocument();
   testPageOrder();
   testUrls();
   testProps();

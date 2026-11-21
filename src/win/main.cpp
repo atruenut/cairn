@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.32.0";
+constexpr const char* kVersion = "0.32.1";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -186,7 +186,7 @@ void updateTitle() {
   std::wstring t;
   if (g.doc) {
     if (const Page* p = g.doc->page(cv().pageId())) t += widen(p->title) + L" — ";
-    t += baseName(widen(g.doc->path())) + L" — ";
+    t += (g.doc->path() == ":memory:" ? std::wstring(L"Cairn Guide (changes are not saved)") : baseName(widen(g.doc->path()))) + L" — ";
   }
   t += kAppName;
   SetWindowTextW(g.hwnd, t.c_str());
@@ -371,8 +371,6 @@ std::wstring uniquePath(const std::wstring& dir, const std::wstring& stem) {
   return p;
 }
 
-bool isGuidePath(const std::wstring& path);
-
 void setDoc(std::unique_ptr<Document> d) {
   g.canvas.setDocument(nullptr);  // never leave a canvas pointing at a dying document
   if (g.canvas2.hwnd()) g.canvas2.setDocument(nullptr);
@@ -391,7 +389,7 @@ void setDoc(std::unique_ptr<Document> d) {
       g.hist2.pos = 0;
     }
   }
-  if (!isGuidePath(widen(g.doc->path()))) writeIni(L"last", widen(g.doc->path()));  // the guide is a throwaway
+  if (g.doc->path() != ":memory:") writeIni(L"last", widen(g.doc->path()));  // the guide lives in memory only
   if (g.active != &g.canvas) {  // a new document starts in the left pane; the right one already shows its first page
     g.active = &g.canvas;
     g.canvas.setMarked(g.split);
@@ -681,23 +679,39 @@ void cmdDeletePage() {
   g.doc->deletePage(p->id);
 }
 
-// The built-in guide: a fresh copy of the starter pages (tour, scripting, every feature) in the temp folder, opened
-// like any file. A new copy is made each time, so it is always current, and it is never remembered as the "last file".
-bool isGuidePath(const std::wstring& path) {
-  size_t sl = path.find_last_of(L"\\/");
-  return path.compare(sl == std::wstring::npos ? 0 : sl + 1, 12, L"Cairn Guide ") == 0;
-}
+// The built-in guide. It opens in its own Cairn window, living only in memory: nothing is written to disk, your
+// current file is left exactly as it is, and closing the window throws the guide away.
+const wchar_t kGuideArg[] = L"--guide";
 
 void cmdGuide() {
-  static std::wstring previous;  // the copy we made last time; removed once the new one is open
+  wchar_t exe[MAX_PATH + 2];
+  DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+  if (!n || n >= MAX_PATH) return;
+  std::wstring cmd = L"\"" + std::wstring(exe, n) + L"\" " + kGuideArg;
+  STARTUPINFOW si{};
+  si.cb = sizeof si;
+  PROCESS_INFORMATION pi{};
+  if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+  } else {
+    showError(L"Couldn't open the guide window.");
+  }
+}
+
+// Versions 0.32.0 made guide copies in the temp folder; tidy up any that were left behind.
+void removeOldGuideCopies() {
   wchar_t tmp[MAX_PATH + 2];
   DWORD n = GetTempPathW(MAX_PATH, tmp);
   if (!n || n > MAX_PATH) return;
-  std::wstring p = std::wstring(tmp, n) + L"Cairn Guide " + std::to_wstring(GetTickCount()) + L".cairn";
-  if (!openDoc(p, true, false)) return;
-  if (!previous.empty() && previous != p)
-    for (const wchar_t* ext : {L"", L"-wal", L"-shm", L"-journal"}) DeleteFileW((previous + ext).c_str());
-  previous = p;
+  std::wstring dir(tmp, n);
+  WIN32_FIND_DATAW fd;
+  HANDLE h = FindFirstFileW((dir + L"Cairn Guide *.cairn*").c_str(), &fd);
+  if (h == INVALID_HANDLE_VALUE) return;
+  do {
+    if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) DeleteFileW((dir + fd.cFileName).c_str());
+  } while (FindNextFileW(h, &fd));
+  FindClose(h);
 }
 
 void cmdAbout() {
@@ -2369,10 +2383,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int nShow) {
   bool opened = false;
   int argc = 0;
   LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  if (argv && argc > 1) {
+  bool guideWindow = argv && argc > 1 && std::wstring(argv[1]) == kGuideArg;
+  if (guideWindow) {
+    opened = openDoc(L":memory:", true, false);
+  } else if (argv && argc > 1) {
     std::wstring p = argv[1];
     opened = openDoc(p, !std::filesystem::exists(std::filesystem::path(p)), false);
   }
+  if (!guideWindow) removeOldGuideCopies();
   if (argv) LocalFree(argv);
   if (!opened) {
     std::wstring last = readIni(L"last");

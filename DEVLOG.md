@@ -358,6 +358,23 @@ was active loaded the new file's first page into the right pane and left the lef
 selected". A new document now always starts in the left pane. Also new: grouped objects get a
 faint dashed frame in Edit mode, so groups are visible rather than something you discover by dragging.
 
+## Entry 39: F1 must never touch your file (0.32.1)
+
+Tom's reaction to Entry 38: where is that temp folder, is F1 piling up copies, and "it deletes my
+project I'm working on, that's dangerous". He is right about the shape of the problem even though the
+code never deleted his file. What 0.32.0 did: F1 *replaced the open document with the guide* in the same
+window (so the project vanished from view), wrote a guide file into `%TEMP%` (usually
+`C:\Users\<you>\AppData\Local\Temp`), and deleted only the previous guide copy it had made in that run.
+Copies from earlier runs were never cleaned up, so they would pile up, and if you had edited the guide,
+pressing F1 again would throw those edits away. Each of those is a bad design on its own, and together
+they look exactly like data loss.
+
+Fix: F1 now starts a second Cairn window running the guide from an in-memory SQLite database
+(`:memory:`). Nothing is written to disk, the current window and file are untouched, and closing the
+guide window discards it. Leftover `Cairn Guide *.cairn` files from 0.32.0 in the temp folder are
+removed at startup. The rule I should have followed from the start: a help command must not change
+what is open.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).
