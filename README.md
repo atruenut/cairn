@@ -127,8 +127,9 @@ website export keeps them as CSS ellipses or small inline SVG polygons.
 overwrites an existing file.
 Choose "Animated GIF" instead of PNG to record what a page's on-open script does: you pick a length (1-60 seconds) and
 frames per second (1-25) and Cairn plays the script on a virtual clock and writes a looping GIF (shared palette, only the
-changed part of each frame is stored). The page must start a timer with `every` or `after`; otherwise it says there is
-nothing to record. WebM is not offered because it needs a video encoder Cairn doesn't ship.
+changed part of each frame is stored). A page can animate in two ways, and both can be combined: animated GIF pictures on
+it (each plays at its own speed and loops, on the same clock as the export) and timers started with `every` or `after`.
+With neither, Cairn says there is nothing to record. WebM is not offered because it needs a video encoder Cairn doesn't ship.
 
 **The guide.** F1 (Help > Cairn Guide) opens the built-in guide in its own window: Welcome, Quick tour, Buttons and
 scripts (with a working example) and More features. It lives in memory only, so nothing is written to disk and
@@ -199,7 +200,7 @@ an artifact on its Actions page.
 Safety: a button will not run .exe/.bat/script files from a document; it offers
 to show them in Explorer. Only http/https/mailto links are opened.
 
-Status: early (v0.33.0). See DEVLOG.md for what is verified and what is not.
+Status: early (v0.33.1). See DEVLOG.md for what is verified and what is not.
 
 ## License
 

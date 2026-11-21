@@ -169,6 +169,7 @@ class Canvas {
     std::vector<HBITMAP> frames;     // animated GIF: composed frames (src == frames[cur])
     std::vector<int> delays;         // ms per frame
     int cur = 0;
+    int cur0 = 0;                    // frame showing before a GIF export borrowed it
     DWORD next = 0;                  // tick at which to advance
     unsigned long long drawnPaint = 0;  // paint number that last drew it (visibility test)
   };

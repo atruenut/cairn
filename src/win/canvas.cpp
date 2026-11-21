@@ -3014,7 +3014,15 @@ int Canvas::exportPageGif(const std::wstring& path, const AnimOptions& opt, std:
   std::vector<std::string> scripts;
   for (const Object& o : p->objects)
     if (o.type == ObjType::Script && looksLikeLisp(o.prop("script"))) scripts.push_back(o.prop("script"));
-  if (scripts.empty()) return 1;
+  // Animated GIF pictures on the page play on the same virtual clock as the scripts.
+  std::vector<ImgEntry*> anims;
+  for (const Object& o : p->objects)
+    if (o.type == ObjType::Image) {
+      ImgEntry* im = imageFor(o.propInt("blob", 0));
+      if (im && im->frames.size() > 1 && std::find(anims.begin(), anims.end(), im) == anims.end()) anims.push_back(im);
+    }
+  if (scripts.empty() && anims.empty()) return 1;
+  for (ImgEntry* im : anims) im->cur0 = im->cur;
 
   BITMAPINFO bi{};
   bi.bmiHeader.biSize = sizeof bi.bmiHeader;
@@ -3050,10 +3058,24 @@ int Canvas::exportPageGif(const std::wstring& path, const AnimOptions& opt, std:
       ScriptResult r = sim.run(src, host);
       if (!r.ok) { msg = L"A script stopped at line " + std::to_wstring(r.line) + L": " + widen(r.error); result = 3; break; }
     }
-    if (result == 0 && !sim.hasTimers()) result = 1;
+    if (result == 0 && !sim.hasTimers() && anims.empty()) result = 1;
     for (int f = 0; result == 0 && f < frames; ++f) {
-      if (f > 0) {
-        ScriptResult r = sim.tick((long)f * 1000 / fps, host);
+      long tms = (long)f * 1000 / fps;
+      for (ImgEntry* im : anims) {  // which picture frame is showing at this moment of the loop
+        long total = 0;
+        for (int d : im->delays) total += std::max(20, d);
+        long at = total > 0 ? tms % total : 0;
+        size_t idx = 0;
+        for (; idx + 1 < im->frames.size(); ++idx) {
+          long d = std::max(20, im->delays[idx]);
+          if (at < d) break;
+          at -= d;
+        }
+        im->cur = (int)idx;
+        im->src = im->frames[idx];
+      }
+      if (f > 0 && sim.hasTimers()) {
+        ScriptResult r = sim.tick(tms, host);
         if (!r.ok) { msg = L"A script stopped: " + widen(r.error); result = 3; break; }
       }
       RECT pr{0, 0, p->w, p->h};
@@ -3068,6 +3090,10 @@ int Canvas::exportPageGif(const std::wstring& path, const AnimOptions& opt, std:
       gf.px.assign(px, px + (size_t)p->w * p->h);
       out.push_back(std::move(gf));
     }
+  }
+  for (ImgEntry* im : anims) {  // back to the frame the screen was showing
+    im->cur = std::min(im->cur0, (int)im->frames.size() - 1);
+    im->src = im->frames[(size_t)im->cur];
   }
   scriptQuiet_ = false;
   exporting_ = false;

@@ -31,7 +31,7 @@ namespace {
 
 constexpr const wchar_t* kAppClass = L"CairnMain";
 constexpr const wchar_t* kAppName = L"Cairn";
-constexpr const char* kVersion = "0.33.0";
+constexpr const char* kVersion = "0.33.1";
 
 constexpr int kTagBase = 5000;  // popup items for "filter by tag": kTagBase = show all, +1.. = tags
 
@@ -629,9 +629,9 @@ void cmdExportPng() {
   switch (cv().exportPageGif(path, opt, msg)) {
     case 0: break;
     case 1:
-      showError(L"Nothing on this page moves, so there is nothing to record.\n\nAnimations come from an On-open script "
-                L"(Edit > Add On-Open Script) that uses (every ...) or (after ...) with set-prop! or set-text!. "
-                L"The Cairn Guide has an example. To save a still picture, choose PNG instead.");
+      showError(L"Nothing on this page moves, so there is nothing to record.\n\nA page animates when it has an animated "
+                L"GIF picture, or an On-open script (Edit > Add On-Open Script) that uses (every ...) or (after ...) with "
+                L"set-prop! or set-text!. The Cairn Guide has an example. To save a still picture, choose PNG instead.");
       break;
     case 2: showError(L"That would make too large a file. Try a shorter length or fewer frames per second."); break;
     default: showError(msg.empty() ? L"Couldn't save the animation." : msg); break;

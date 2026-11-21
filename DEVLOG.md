@@ -416,6 +416,19 @@ fine for plain text, wrong for accents. Each pane has its own Lisp session, so v
 Leaving Edit mode restarts the page's on-open scripts (also true for old line scripts, which may pop up their message
 again). I can't test on real Windows or hear any audio here; the Wine run is the evidence for the GUI parts.
 
+
+## Entry 41: GIF pictures inside the GIF (0.33.1)
+
+Tom's answer to my "what next": he specifically wants animated GIFs on pages handled. Animated GIF pictures already
+played on screen (the importer composes every frame), but the page-to-GIF export of Entry 40 only looked at timer
+scripts, so a page with a spinner picture on it was refused as "nothing moves", and one with both would have frozen the
+picture on whatever frame the screen happened to be showing. Now the export collects the page's animated pictures, picks
+each one's frame from the export's virtual clock (looping, with GIF's minimum frame time of 20 ms), and puts the screen
+back on the frame it borrowed afterwards. Checked under Wine with a 4-frame, 250 ms-per-frame GIF on a page: the 50
+exported frames cycle red, green, blue, yellow at the right pace (10 fps is not a multiple of 4 per second, so frames
+alternate between 2 and 3 export frames each, which is just rounding). The website export already copies GIF bytes
+unchanged, so those animate in browsers without any work.
+
 ### TODO / known gaps
 
 - ~~Re-vendor SQLite~~ verified byte-identical to an official build (Entry 33).
